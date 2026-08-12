@@ -11,7 +11,7 @@ services:
       # the Application's fqdn field automatically. This sidesteps a Coolify UI
       # bug (sslipDomainWarning null-arg crash) that otherwise blocks entering a
       # domain via the Application General form.
-      SERVICE_FQDN_APP: "http://REPLACE-WITH-YOUR-TEAM-SLUG.ml-capstone.cs.byu.edu"
+      SERVICE_FQDN_APP: "http://EDIT-YOUR-docker-compose-yaml.ml-capstone.cs.byu.edu"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
