@@ -3,6 +3,15 @@ services:
     build: .
     ports:
       - "8000:8000"
+    environment:
+      # ⚠️ EDIT THIS before your first push, on BOTH the main and staging branches.
+      # Format: http://<team-slug>.ml-capstone.cs.byu.edu on main
+      #         http://<team-slug>-staging.ml-capstone.cs.byu.edu on staging
+      # Coolify reads SERVICE_FQDN_APP at Application-create time and populates
+      # the Application's fqdn field automatically. This sidesteps a Coolify UI
+      # bug (sslipDomainWarning null-arg crash) that otherwise blocks entering a
+      # domain via the Application General form.
+      SERVICE_FQDN_APP: "http://REPLACE-WITH-YOUR-TEAM-SLUG.ml-capstone.cs.byu.edu"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
