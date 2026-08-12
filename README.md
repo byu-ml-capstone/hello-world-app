@@ -51,3 +51,16 @@ This app is deploy-ready for the ml-capstone cluster. Steps:
 4. Merge `staging` → `main` → same flow to prod at `https://<team>.ml-capstone.cs.byu.edu`.
 
 Bump `APP_VERSION` in `greetings.py` on each meaningful change so you can eyeball `/health` after a deploy and confirm it's the new build.
+
+## After you've mastered this
+
+`hello-world-app` is the on-ramp for the BYU CS ml-capstone class. Once you have the Coolify deploy pipeline working end-to-end and understand every piece of this repo, the natural next step is [`byu-ml-capstone/sentiment-test-app`](https://github.com/byu-ml-capstone/sentiment-test-app) — a fuller build-out with the same shape (FastAPI + Docker + tests + 3-job CI/CD) but adds:
+
+- Modular Python (separate `config.py`, `device.py`, `schemas.py`, `llm_client.py`, `local_classifier.py`)
+- Both a remote LLM path (via LiteLLM) and a local HuggingFace model path
+- GPU detection + graceful CPU fallback
+- Deep integration tests via `integration-test.sh`
+- Base+app Docker image split for fast rebuilds
+- Docker Compose runtime config
+
+**You're not meant to fork `sentiment-test-app` directly.** Instead, `student-guide.md` Section 1 walks you through growing your templated `hello-world-app` into something structurally like `sentiment-test-app`, one file at a time. That way you understand every piece.
