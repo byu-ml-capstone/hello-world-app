@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
-# Quick local check: build, run, curl a couple endpoints, clean up.
+# Quick local check: build, run detached, curl a couple endpoints.
+# Leaves the container running so you can keep poking at it — stop
+# it yourself with the command printed at the end.
 set -euo pipefail
 cd "$(dirname "$0")"
 
+IMAGE=hello-world-app:local
+CONTAINER=hello-world-local
+
 echo "=== building ==="
-docker build -t hello-world-app:local .
+docker build -t "$IMAGE" .
 
 echo
-echo "=== running ==="
-CID=$(docker run -d --rm -p 8000:8000 hello-world-app:local)
-trap 'docker stop "$CID" >/dev/null 2>&1 || true' EXIT
+echo "=== running (detached, --rm) ==="
+docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+docker run -d --rm --name "$CONTAINER" -p 8000:8000 "$IMAGE" >/dev/null
 
 # Wait for /health to come up
 for _ in $(seq 1 15); do
@@ -27,4 +32,6 @@ echo "=== GET /health ==="
 curl -sS http://127.0.0.1:8000/health
 echo
 echo
-echo "OK — press Ctrl-C to stop, or wait and the trap will clean up on exit."
+echo "Container '$CONTAINER' is running on http://127.0.0.1:8000."
+echo "Hit it with more curls, tail logs (docker logs -f $CONTAINER),"
+echo "or stop it with:  docker stop $CONTAINER"
