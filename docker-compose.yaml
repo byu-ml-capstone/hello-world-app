@@ -1,8 +1,13 @@
 services:
   app:
     build: .
-    ports:
-      - "8000:8000"
+    # `expose:` documents the container's internal port for Coolify/Traefik
+    # to discover, WITHOUT binding it to a host port. Do NOT use `ports:` here
+    # — the shared cluster server only lets ONE container own host port 8000
+    # at a time, and Coolify+Traefik route traffic over the internal `coolify`
+    # Docker network based on the Port field in Coolify's Application settings.
+    expose:
+      - "8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
