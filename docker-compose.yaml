@@ -7,25 +7,24 @@ services:
     # routes traffic over the internal `coolify` Docker network anyway.
     expose:
       - "8000"
-    # Attach to Coolify's shared network so Traefik (which lives on `coolify`)
-    # can reach this container. Compose would otherwise put us on a
-    # project-scoped default network Traefik cannot see.
-    networks:
-      - coolify
-    # Explicit Traefik routing labels. Coolify's SERVICE_FQDN_* magic-var
-    # approach breaks Coolify's own compose parser ("no service selected"),
-    # so we hand-write the routing rules and reference the env vars Coolify
-    # DOES inject:
-    #   ${COOLIFY_FQDN}          — the domain you configured in the
-    #                              Application's General / Domains tab
-    #   ${COOLIFY_RESOURCE_UUID} — a per-Application unique id (keeps
-    #                              Traefik router/service names collision-free
-    #                              when many student apps share one Traefik)
-    labels:
-      - traefik.enable=true
-      - "traefik.http.routers.app-${COOLIFY_RESOURCE_UUID}.rule=Host(`${COOLIFY_FQDN}`)"
-      - "traefik.http.routers.app-${COOLIFY_RESOURCE_UUID}.entrypoints=http"
-      - "traefik.http.services.app-${COOLIFY_RESOURCE_UUID}.loadbalancer.server.port=8000"
+    environment:
+      # Coolify magic: REFERENCING ${SERVICE_FQDN_APP} anywhere in this file
+      # tells Coolify to (1) populate that variable with the Application's
+      # configured domain, (2) attach this service to the `coolify` Docker
+      # network, and (3) auto-generate Traefik labels routing the domain to
+      # this service. Coolify picks up the port from the `expose:` above
+      # (or the Application's Port setting).
+      #
+      # DON'T declare SERVICE_FQDN_* as a bare env-var name (e.g.
+      # `- SERVICE_FQDN_APP_8000`) — that crashes Coolify's parser with
+      # "no service selected". The magic is triggered by INTERPOLATION,
+      # not declaration.
+      #
+      # `APP_URL` is just a convenient env var the app can read to know
+      # its own public URL (useful for building absolute links, callbacks,
+      # etc.). The specific name doesn't matter to Coolify; what matters
+      # is that ${SERVICE_FQDN_APP} appears somewhere in the compose file.
+      - APP_URL=${SERVICE_FQDN_APP}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
@@ -33,8 +32,3 @@ services:
       retries: 3
       start_period: 15s
     restart: unless-stopped
-
-networks:
-  coolify:
-    external: true
-    name: coolify
