@@ -1,13 +1,25 @@
 services:
   app:
     build: .
-    # `expose:` documents the container's internal port for Coolify/Traefik
-    # to discover, WITHOUT binding it to a host port. Do NOT use `ports:` here
-    # — the shared cluster server only lets ONE container own host port 8000
-    # at a time, and Coolify+Traefik route traffic over the internal `coolify`
-    # Docker network based on the Port field in Coolify's Application settings.
+    # `expose:` documents the container's internal port WITHOUT binding it to
+    # a host port. Do NOT use `ports:` here — the shared cluster server only
+    # lets ONE container own each host port at a time, and Coolify's Traefik
+    # routes traffic over the internal `coolify` Docker network anyway.
     expose:
       - "8000"
+    environment:
+      # Coolify magic variable: declare (no value) and Coolify will
+      #   (1) populate this env var with the Application's configured domain,
+      #   (2) attach this service to the external `coolify` Docker network,
+      #   (3) auto-generate Traefik labels routing that domain -> this service
+      #       on the port in the variable name (8000).
+      # Name format is SERVICE_FQDN_<UPPERCASED_SERVICE_NAME>_<PORT>. Since
+      # this service is named `app` and listens on 8000, the var is
+      # SERVICE_FQDN_APP_8000. If you rename the service or change the port,
+      # rename this variable to match — otherwise Traefik won't route and
+      # you'll get a 404 from `http://<your-domain>/` even though the
+      # container is healthy.
+      - SERVICE_FQDN_APP_8000
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
