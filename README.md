@@ -10,7 +10,7 @@ Repo root = orchestration + docs. Each subdirectory = one service (self-containe
 hello-world-app/
 ├── docker-compose.yaml           # production compose (Coolify reads this)
 ├── docker-compose.override.yml   # local-dev only (host port bind); ignored by Coolify
-├── test-local.sh                 # docker compose up + smoke-test everything
+├── smoke-test.sh                 # docker compose up + smoke-test everything; also `./smoke-test.sh URL` to test a deployed instance
 ├── README.md
 ├── .github/workflows/ci.yml      # 3-job pipeline: test → deploy-staging → deploy-prod
 │
@@ -68,15 +68,17 @@ Only `hello` gets a public URL. `time` and `db` are reachable only from other se
 | POST | `/notes` | `{"id": ..., "body": ..., "created_at": ...}` — inserts a row; body: `{"body": "some text"}` |
 | POST | `/admin/reset` | `{"ok": true, ...}` — DROPs + recreates the `notes` table. Env-gated: only works with `ALLOW_ADMIN_RESET=true`. Local dev enables it via `docker-compose.override.yml`; in Coolify you'd add the env var, hit this, then remove it. |
 
-## Local test
+## Smoke test
 
 ```bash
-./test-local.sh
+./smoke-test.sh                                             # local: builds + starts + tests
+./smoke-test.sh http://your-app.ml-capstone.cs.byu.edu      # remote: tests a deployed instance
 ```
 
 Or run without Docker:
 
 ```bash
+cd hello
 pip install -r requirements.txt
 uvicorn main:app --reload
 ```
