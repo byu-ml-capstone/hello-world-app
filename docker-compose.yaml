@@ -1,6 +1,6 @@
 services:
-  app:
-    build: .
+  hello:
+    build: ./hello
     # `expose:` documents the container's internal port WITHOUT binding it to
     # a host port. Do NOT use `ports:` here — the shared cluster server only
     # lets ONE container own each host port at a time, and Coolify's Traefik
@@ -13,18 +13,23 @@ services:
     expose:
       - "8000"
     environment:
-      # Coolify magic: REFERENCING ${SERVICE_FQDN_APP} anywhere in this file
-      # tells Coolify to (1) populate that variable with the Application's
-      # configured domain, (2) attach this service to the `coolify` Docker
-      # network, and (3) auto-generate Traefik labels routing the domain to
-      # this service. The magic is triggered by INTERPOLATION, not by
-      # declaring the var — a bare `- SERVICE_FQDN_APP_8000` crashes
-      # Coolify's parser with "no service selected".
+      # Coolify magic: REFERENCING ${SERVICE_FQDN_HELLO} anywhere in this
+      # file tells Coolify to (1) populate that variable with the
+      # Application's configured domain, (2) attach this service to the
+      # `coolify` Docker network, and (3) auto-generate Traefik labels
+      # routing the domain to this service. The magic is triggered by
+      # INTERPOLATION, not by declaring the var — a bare
+      # `- SERVICE_FQDN_HELLO_8000` crashes Coolify's parser with
+      # "no service selected".
       #
-      # `APP_URL` is arbitrary — Coolify only cares that ${SERVICE_FQDN_APP}
-      # appears. Assigning to APP_URL is a nice idiom because the app can
-      # read its own public URL for building absolute links / callbacks.
-      - APP_URL=${SERVICE_FQDN_APP}
+      # The variable name follows the service name: SERVICE_FQDN_<UPPER>.
+      # Since this service is `hello`, the var is SERVICE_FQDN_HELLO. If
+      # you rename the service, rename the var to match.
+      #
+      # APP_URL is arbitrary — Coolify only cares that ${SERVICE_FQDN_HELLO}
+      # appears. Handing it to APP_URL lets the container read its own
+      # public URL for building absolute links / callbacks.
+      - APP_URL=${SERVICE_FQDN_HELLO}
     depends_on:
       time:
         condition: service_healthy
@@ -38,11 +43,11 @@ services:
 
   # Second service — a stand-in for the kind of sidecar you'd add for real
   # work (database, cache, background worker, local ML model server). This
-  # one serves the current UTC time; `app` reaches it at `http://time:8001`
-  # over the Compose network. INTERNAL ONLY — no `${SERVICE_FQDN_TIME}`,
-  # so Coolify won't route Traefik to it. Only `app` is publicly reachable.
+  # one serves the current UTC time; `hello` reaches it at http://time:8001
+  # over the Compose network. INTERNAL ONLY — no ${SERVICE_FQDN_TIME},
+  # so Coolify won't route Traefik to it. Only `hello` is publicly reachable.
   time:
-    build: ./time-service
+    build: ./time
     expose:
       - "8001"
     healthcheck:

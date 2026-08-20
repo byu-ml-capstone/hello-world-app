@@ -27,10 +27,10 @@ jobs:
           cache: pip
 
       - name: Install dependencies
-        run: pip install fastapi 'uvicorn[standard]' pydantic httpx pytest
+        run: pip install -r hello/requirements.txt httpx pytest
 
       - name: Unit tests
-        run: pytest tests/ -v
+        run: cd hello && pytest tests/ -v
 
   # Push to staging → fires Coolify staging webhook after tests pass.
   deploy-staging:

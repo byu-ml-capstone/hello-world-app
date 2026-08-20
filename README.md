@@ -4,15 +4,32 @@ Minimal FastAPI starter for the ML Capstone class deployment lab. Use this to wa
 
 ## Layout
 
-- `main.py` — FastAPI app and endpoints. Wiring only.
-- `greetings.py` — content + logic (the greeting dict + `get_greeting()`). Pulled out of `main.py` on purpose so you see the "split logic from wiring" pattern even at hello-world scale.
-- `tests/test_api.py` — six pytest tests hitting every endpoint (the `/time` test mocks the sidecar).
-- `Dockerfile` — single-stage `python:3.12-slim`, copies all `*.py`, exposes `:8000`.
-- `docker-compose.yaml` — production compose file: `app` service (Traefik-routed) + `time` sidecar (internal only). Coolify uses this via `-f docker-compose.yaml`.
-- `docker-compose.override.yml` — local-dev only. Adds host port binding for `app` so browsers/curls on your laptop can reach it. Auto-merged by `docker compose up`; Coolify ignores it.
-- `time-service/` — the internal `time` sidecar (its own Dockerfile + main.py). Stand-in for what could later be a database, cache, worker, or local model server.
-- `.github/workflows/ci.yml` — three-job pipeline: unit tests → staging deploy → prod deploy.
-- `test-local.sh` — build both services via `docker compose up -d`, curl a few endpoints, leave running.
+Repo root = orchestration + docs. Each subdirectory = one service (self-contained code + Dockerfile + deps).
+
+```
+hello-world-app/
+├── docker-compose.yaml           # production compose (Coolify reads this)
+├── docker-compose.override.yml   # local-dev only (host port bind); ignored by Coolify
+├── test-local.sh                 # docker compose up + smoke-test both services
+├── README.md
+├── .github/workflows/ci.yml      # 3-job pipeline: test → deploy-staging → deploy-prod
+│
+├── hello/                        # PUBLIC service — Traefik-routed
+│   ├── main.py                   #   FastAPI wiring + endpoints
+│   ├── greetings.py              #   content + logic (split out from main.py on purpose)
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   ├── conftest.py               #   makes hello/ the pytest rootdir
+│   └── tests/test_api.py         #   six tests; /time test mocks the sidecar
+│
+└── time/                         # INTERNAL sidecar — no external routing
+    ├── main.py                   #   FastAPI returning UTC time on /now
+    ├── requirements.txt
+    └── Dockerfile
+```
+
+Stand-in for real-world sidecars (database, cache, worker, local model server). The `hello/` service talks to `time` via `http://time:8001` — Compose's built-in DNS resolves the service name over the internal network. Only `hello` gets a public URL; add more sidecars the same way (their own subdirectory, `expose:` in compose, no `${SERVICE_FQDN_*}`).
 
 ## Architecture
 
