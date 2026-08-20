@@ -76,7 +76,6 @@ class HealthResponse(BaseModel):
 
 class NoteIn(BaseModel):
     body: str
-    priority: int = 0
 
 
 @app.get("/")
@@ -116,7 +115,7 @@ def list_notes():
 @app.post("/notes", status_code=201)
 def create_note(note: NoteIn):
     try:
-        return notes_dao.insert(note.body, note.priority)
+        return notes_dao.insert(note.body)
     except psycopg.OperationalError as e:
         raise HTTPException(status_code=503, detail=f"db unreachable: {e}") from e
 

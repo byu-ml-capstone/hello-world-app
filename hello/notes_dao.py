@@ -111,31 +111,18 @@ class NotesDAO:
 
     def list_all(self) -> list[dict]:
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, body, priority, created_at FROM notes ORDER BY id"
-            )
+            cur.execute("SELECT id, body, created_at FROM notes ORDER BY id")
             rows = cur.fetchall()
         return [
-            {
-                "id": r[0],
-                "body": r[1],
-                "priority": r[2],
-                "created_at": r[3].isoformat(),
-            }
+            {"id": r[0], "body": r[1], "created_at": r[2].isoformat()}
             for r in rows
         ]
 
-    def insert(self, body: str, priority: int = 0) -> dict:
+    def insert(self, body: str) -> dict:
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO notes (body, priority) VALUES (%s, %s) "
-                "RETURNING id, created_at",
-                (body, priority),
+                "INSERT INTO notes (body) VALUES (%s) RETURNING id, created_at",
+                (body,),
             )
             row = cur.fetchone()
-        return {
-            "id": row[0],
-            "body": body,
-            "priority": priority,
-            "created_at": row[1].isoformat(),
-        }
+        return {"id": row[0], "body": body, "created_at": row[1].isoformat()}
