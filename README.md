@@ -84,7 +84,7 @@ pytest tests/ -v
 This app is deploy-ready for the ml-capstone cluster. Steps:
 
 1. Fork or copy this directory into your team's GitHub repo.
-2. Follow **`student-guide.md` → Part B → Setup: Sign in and create your Coolify Applications** (in the top-level of `ml-capstone-platform`) to wire up the Coolify Applications + GitHub secrets.
+2. Follow **`student-guide.md` → Part B → Setup: Create your repo, then sign in and create your Coolify Applications** (in the top-level of `ml-capstone-platform`) to wire up the Coolify Applications + GitHub secrets.
 3. Push to `staging` branch → GitHub Actions runs unit tests → fires the Coolify staging webhook → your app is live at `https://<team>-staging.ml-capstone.cs.byu.edu`.
 4. Merge `staging` → `main` → same flow to prod at `https://<team>.ml-capstone.cs.byu.edu`.
 
