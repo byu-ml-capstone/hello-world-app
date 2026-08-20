@@ -10,7 +10,7 @@ Repo root = orchestration + docs. Each subdirectory = one service (self-containe
 hello-world-app/
 ├── docker-compose.yaml           # production compose (Coolify reads this)
 ├── docker-compose.override.yml   # local-dev only (host port bind); ignored by Coolify
-├── test-local.sh                 # docker compose up + smoke-test both services
+├── test-local.sh                 # docker compose up + smoke-test everything
 ├── README.md
 ├── .github/workflows/ci.yml      # 3-job pipeline: test → deploy-staging → deploy-prod
 │
@@ -21,32 +21,40 @@ hello-world-app/
 │   ├── Dockerfile
 │   ├── .dockerignore
 │   ├── conftest.py               #   makes hello/ the pytest rootdir
-│   └── tests/test_api.py         #   six tests; /time test mocks the sidecar
+│   └── tests/test_api.py         #   eight tests; /time + /notes tests mock their sidecars
 │
-└── time/                         # INTERNAL sidecar — no external routing
-    ├── main.py                   #   FastAPI returning UTC time on /now
-    ├── requirements.txt
-    └── Dockerfile
+├── time/                         # INTERNAL sidecar — no external routing
+│   ├── main.py                   #   FastAPI returning UTC time on /now
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+└── db/                           # INTERNAL Postgres — persistent storage demo
+    └── init.sql                  #   auto-run on first startup only; creates `notes` table
 ```
 
-Stand-in for real-world sidecars (database, cache, worker, local model server). The `hello/` service talks to `time` via `http://time:8001` — Compose's built-in DNS resolves the service name over the internal network. Only `hello` gets a public URL; add more sidecars the same way (their own subdirectory, `expose:` in compose, no `${SERVICE_FQDN_*}`).
+`hello/` is the only public service. `time/` is a lightweight sidecar demo. `db/` uses the official `postgres:16-alpine` image directly (no Dockerfile needed) — the folder just holds the schema-init SQL that gets bind-mounted into the container. Add more sidecars the same way: their own subdirectory in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
 
 ## Architecture
 
-Two services in one Compose project:
-
 ```
 Browser / curl
-      │  http://<domain>            (via Coolify Traefik in prod, or host:8000 locally)
+      │  http://<domain>                          (via Coolify Traefik in prod, or host:8000 locally)
       ▼
-┌─────────────────┐        http://time:8001/now       ┌───────────────┐
-│  app (FastAPI)  │  ─────────────────────────────▶   │  time (FastAPI) │
-│  port 8000      │  internal Docker DNS by service    │  port 8001      │
-│  PUBLIC         │  name — no external routing        │  INTERNAL       │
-└─────────────────┘                                    └───────────────┘
+┌────────────────────┐      http://time:8001/now      ┌────────────────────┐
+│   hello (FastAPI)  │ ────────────────────────────▶  │   time (FastAPI)   │
+│   port 8000        │      Docker DNS by service     │   port 8001        │
+│   PUBLIC           │      name — internal only      │   INTERNAL         │
+└──────────┬─────────┘                                └────────────────────┘
+           │  postgres://appuser:apppass@db:5432/appdb
+           ▼
+┌────────────────────┐
+│   db (postgres)    │      persistent volume: db-data
+│   port 5432        │      → survives docker compose down
+│   INTERNAL         │      → wiped only by `docker compose down -v`
+└────────────────────┘
 ```
 
-Only `app` gets a public URL. `time` is reachable only from other services on the Compose network. Swap `time` for a real database / cache / worker later — the calling pattern is the same.
+Only `hello` gets a public URL. `time` and `db` are reachable only from other services on the Compose network. Coolify isolates volumes per-Application, so staging and prod each get their own `db-data` — they never share data.
 
 ## Endpoints
 
@@ -56,6 +64,8 @@ Only `app` gets a public URL. `time` is reachable only from other services on th
 | GET | `/languages` | `{"supported": ["de", "en", "es", "fr", "ja"]}` |
 | GET | `/health` | `{"ok": true, "version": "0.1.1"}` |
 | GET | `/time` | `{"from_time_service": {"utc": "<iso timestamp>"}}` — proxies the `time` sidecar |
+| GET | `/notes` | `[{"id": ..., "body": "...", "created_at": "..."}]` — every row in the `notes` table |
+| POST | `/notes` | `{"id": ..., "body": ..., "created_at": ...}` — inserts a row; body: `{"body": "some text"}` |
 
 ## Local test
 

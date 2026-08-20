@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
@@ -57,3 +58,46 @@ def test_time_endpoint_wraps_response_from_time_sidecar():
 
     assert r.status_code == 200
     assert r.json() == {"from_time_service": {"utc": "2026-08-20T12:34:56+00:00"}}
+
+
+# Helper for the /notes tests below: build a mock psycopg connection whose
+# cursor's execute()/fetchall()/fetchone() return whatever the test wants.
+# Both `conn` and `cur` need to act as context managers because main.py
+# uses `with psycopg.connect(...) as conn, conn.cursor() as cur`.
+def _mock_psycopg_conn(fetchall=None, fetchone=None):
+    cur = MagicMock()
+    cur.__enter__.return_value = cur
+    cur.__exit__.return_value = False
+    if fetchall is not None:
+        cur.fetchall.return_value = fetchall
+    if fetchone is not None:
+        cur.fetchone.return_value = fetchone
+    conn = MagicMock()
+    conn.__enter__.return_value = conn
+    conn.__exit__.return_value = False
+    conn.cursor.return_value = cur
+    return conn
+
+
+def test_notes_list_returns_rows_from_db():
+    fake_ts = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    conn = _mock_psycopg_conn(fetchall=[(1, "first note", fake_ts)])
+    with patch("main.psycopg.connect", return_value=conn):
+        r = client.get("/notes")
+    assert r.status_code == 200
+    assert r.json() == [
+        {"id": 1, "body": "first note", "created_at": "2026-08-20T12:00:00+00:00"}
+    ]
+
+
+def test_notes_create_returns_inserted_row():
+    fake_ts = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
+    conn = _mock_psycopg_conn(fetchone=(42, fake_ts))
+    with patch("main.psycopg.connect", return_value=conn):
+        r = client.post("/notes", json={"body": "hello persistence"})
+    assert r.status_code == 201
+    assert r.json() == {
+        "id": 42,
+        "body": "hello persistence",
+        "created_at": "2026-08-20T12:00:00+00:00",
+    }
