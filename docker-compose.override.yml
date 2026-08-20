@@ -13,7 +13,7 @@
 #      Coolify's Environment Variables UI when they need to reset, then
 #      remove the env var afterward.
 #
-# `test-local.sh` also exports SERVICE_FQDN_HELLO before running compose
+# `smoke-test.sh` also exports SERVICE_FQDN_HELLO before running compose
 # so the interpolation of ${SERVICE_FQDN_HELLO} in the main file doesn't
 # warn.
 
