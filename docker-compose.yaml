@@ -67,13 +67,11 @@ services:
   # `hello` reaches it at postgresql://...@db:5432/... over the Compose
   # network. INTERNAL ONLY.
   #
-  # Built from db/Dockerfile, which is a two-line wrap around the official
-  # postgres:16-alpine image that COPYs our init.sql into
-  # /docker-entrypoint-initdb.d/. We build our own image (instead of using
-  # `image: postgres:16-alpine` + a bind-mount for init.sql) because
-  # Coolify's build/deploy flow doesn't always make bind-mount sources
-  # visible to the container runtime — the COPY happens at image-build
-  # time on the same host, so it always works.
+  # Stock postgres:16-alpine image, no customization. The database
+  # container is a generic storage service — it doesn't know anything
+  # about the app's schema. The app owns the schema and materializes it
+  # into this database via its startup lifespan hook (see hello/main.py).
+  # Same pattern as Django, Rails, and modern FastAPI + Alembic apps.
   #
   # db-data (bottom of file) is the named volume that makes data survive
   # `docker compose down`, redeploys, and host reboots.
@@ -83,7 +81,7 @@ services:
   # correct default (never mix staging data with prod data). If you need
   # to move data between environments, use `pg_dump` and `psql < dump`.
   db:
-    build: ./db
+    image: postgres:16-alpine
     environment:
       - POSTGRES_USER=appuser
       - POSTGRES_PASSWORD=apppass
