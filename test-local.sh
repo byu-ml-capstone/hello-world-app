@@ -7,10 +7,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-# Provide a value for the ${SERVICE_FQDN_APP} interpolation in
+# Provide a value for the ${SERVICE_FQDN_HELLO} interpolation in
 # docker-compose.yaml so compose doesn't warn about an undefined var. In
 # production Coolify populates this with the real domain.
-export SERVICE_FQDN_APP="http://localhost:8000"
+export SERVICE_FQDN_HELLO="http://localhost:8000"
 
 echo "=== building + starting (docker compose, detached) ==="
 docker compose down --remove-orphans >/dev/null 2>&1 || true
@@ -40,8 +40,8 @@ curl -sS http://127.0.0.1:8000/time
 echo
 echo
 echo "Both services are running:"
-echo "  app  → http://localhost:8000  (public API — Traefik-routed in prod)"
-echo "  time → internal only          (reachable from app at http://time:8001)"
+echo "  hello → http://localhost:8000 (public API — Traefik-routed in prod)"
+echo "  time  → internal only         (reachable from hello at http://time:8001)"
 echo
 echo "Hit them with more curls, tail logs (docker compose logs -f),"
 echo "or stop everything with:  docker compose down"
