@@ -30,8 +30,13 @@ services:
       # appears. Handing it to APP_URL lets the container read its own
       # public URL for building absolute links / callbacks.
       - APP_URL=${SERVICE_FQDN_HELLO}
+      # Postgres connection string. Uses the compose service DNS name `db`
+      # as the hostname (see the `db:` service below).
+      - DATABASE_URL=postgresql://appuser:apppass@db:5432/appdb
     depends_on:
       time:
+        condition: service_healthy
+      db:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
@@ -42,10 +47,10 @@ services:
     restart: unless-stopped
 
   # Second service — a stand-in for the kind of sidecar you'd add for real
-  # work (database, cache, background worker, local ML model server). This
-  # one serves the current UTC time; `hello` reaches it at http://time:8001
-  # over the Compose network. INTERNAL ONLY — no ${SERVICE_FQDN_TIME},
-  # so Coolify won't route Traefik to it. Only `hello` is publicly reachable.
+  # work (background worker, local ML model server, etc.). This one serves
+  # the current UTC time; `hello` reaches it at http://time:8001 over the
+  # Compose network. INTERNAL ONLY — no ${SERVICE_FQDN_TIME}, so Coolify
+  # won't route Traefik to it.
   time:
     build: ./time
     expose:
@@ -57,3 +62,46 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
+
+  # Third service — a real Postgres database with persistent storage.
+  # `hello` reaches it at postgresql://...@db:5432/... over the Compose
+  # network. INTERNAL ONLY. Two mounts:
+  #
+  #   db-data           — the named volume that makes data survive
+  #                       `docker compose down`, redeploys, and reboots.
+  #                       Defined at the bottom of this file.
+  #
+  #   ./db/init.sql     — a bind-mount into the postgres image's
+  #                       /docker-entrypoint-initdb.d/. The image auto-runs
+  #                       any SQL in that directory ONLY on first startup
+  #                       (empty data dir). See db/init.sql for details.
+  #
+  # Coolify per-Application isolation: staging and production each get
+  # their OWN db-data volume — they do NOT share the database. That's the
+  # correct default (never mix staging data with prod data). If you need
+  # to move data between environments, use `pg_dump` and `psql < dump`.
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=appuser
+      - POSTGRES_PASSWORD=apppass
+      - POSTGRES_DB=appdb
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  # Named volume. Docker keeps this in its managed storage on the host disk
+  # (/var/lib/docker/volumes on Linux). Survives container recreation,
+  # image rebuilds, and host reboots. Only removed by:
+  #   - `docker compose down -v` (the -v is the "delete volumes" flag)
+  #   - `docker volume rm hello-world-app_db-data` (name is project-prefixed)
+  #   - Deleting the Application in Coolify with the "delete volumes" box.
+  db-data:
