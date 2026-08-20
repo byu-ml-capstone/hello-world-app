@@ -23,16 +23,13 @@ hello-world-app/
 │   ├── conftest.py               #   makes hello/ the pytest rootdir
 │   └── tests/test_api.py         #   eight tests; /time + /notes tests mock their sidecars
 │
-├── time/                         # INTERNAL sidecar — no external routing
-│   ├── main.py                   #   FastAPI returning UTC time on /now
-│   ├── requirements.txt
-│   └── Dockerfile
-│
-└── db/                           # INTERNAL Postgres — persistent storage demo
-    └── init.sql                  #   auto-run on first startup only; creates `notes` table
+└── time/                         # INTERNAL sidecar — no external routing
+    ├── main.py                   #   FastAPI returning UTC time on /now
+    ├── requirements.txt
+    └── Dockerfile
 ```
 
-`hello/` is the only public service. `time/` is a lightweight sidecar demo. `db/` uses the official `postgres:16-alpine` image directly (no Dockerfile needed) — the folder just holds the schema-init SQL that gets bind-mounted into the container. Add more sidecars the same way: their own subdirectory in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
+`hello/` is the only public service. `time/` is a lightweight sidecar demo. There's no `db/` subdirectory — the Postgres sidecar in `docker-compose.yaml` uses the stock `postgres:16-alpine` image directly. Postgres is a generic storage service; the app owns its schema and materializes it at startup via a FastAPI lifespan hook in `hello/main.py`. That's the modern Django/Rails/Alembic convention: db container = dumb storage, app codebase = schema source of truth. Add more sidecars the same way: their own subdirectory (if they need one) or just an `image:` line in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
 
 ## Architecture
 
