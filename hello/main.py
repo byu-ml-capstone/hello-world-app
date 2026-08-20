@@ -45,20 +45,24 @@ ADMIN_RESET_ENABLED = os.environ.get("ALLOW_ADMIN_RESET", "").lower() in (
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    """Startup: idempotently ensure the notes table exists.
+    """Startup: apply any pending schema migrations.
 
-    Real apps use proper migrations (Alembic, sqlx-migrate, Prisma, etc.).
-    For a teaching demo, `CREATE TABLE IF NOT EXISTS` at startup is
-    enough; the DAO's ensure_schema() encapsulates it.
+    Reads hello/migrations/*.sql, runs each file whose name isn't
+    already recorded in the `_migrations` tracking table, records
+    the newly-applied ones. Same code runs on staging AND production
+    on every deploy, so schema stays in sync across environments
+    automatically.
 
-    OperationalError (db not reachable) is swallowed so /health can still
-    respond during a partial outage; /notes will surface 503 on request.
+    See hello/notes_dao.py apply_migrations() for the implementation.
+
+    OperationalError (db not reachable) is swallowed so /health can
+    still respond during a partial outage; /notes will surface 503
+    on request.
     """
     try:
-        notes_dao.ensure_schema()
-        log.info("startup: notes table verified/created")
+        notes_dao.apply_migrations()
     except psycopg.OperationalError as e:
-        log.warning("startup: db unreachable, skipping schema check: %s", e)
+        log.warning("startup: db unreachable, skipping migrations: %s", e)
     yield
 
 
@@ -72,6 +76,7 @@ class HealthResponse(BaseModel):
 
 class NoteIn(BaseModel):
     body: str
+    priority: int = 0
 
 
 @app.get("/")
@@ -111,7 +116,7 @@ def list_notes():
 @app.post("/notes", status_code=201)
 def create_note(note: NoteIn):
     try:
-        return notes_dao.insert(note.body)
+        return notes_dao.insert(note.body, note.priority)
     except psycopg.OperationalError as e:
         raise HTTPException(status_code=503, detail=f"db unreachable: {e}") from e
 
