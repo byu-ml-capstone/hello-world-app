@@ -6,10 +6,30 @@ Minimal FastAPI starter for the ML Capstone class deployment lab. Use this to wa
 
 - `main.py` — FastAPI app and endpoints. Wiring only.
 - `greetings.py` — content + logic (the greeting dict + `get_greeting()`). Pulled out of `main.py` on purpose so you see the "split logic from wiring" pattern even at hello-world scale.
-- `tests/test_api.py` — five pytest tests hitting every endpoint.
+- `tests/test_api.py` — six pytest tests hitting every endpoint (the `/time` test mocks the sidecar).
 - `Dockerfile` — single-stage `python:3.12-slim`, copies all `*.py`, exposes `:8000`.
+- `docker-compose.yaml` — production compose file: `app` service (Traefik-routed) + `time` sidecar (internal only). Coolify uses this via `-f docker-compose.yaml`.
+- `docker-compose.override.yml` — local-dev only. Adds host port binding for `app` so browsers/curls on your laptop can reach it. Auto-merged by `docker compose up`; Coolify ignores it.
+- `time-service/` — the internal `time` sidecar (its own Dockerfile + main.py). Stand-in for what could later be a database, cache, worker, or local model server.
 - `.github/workflows/ci.yml` — three-job pipeline: unit tests → staging deploy → prod deploy.
-- `test-local.sh` — build, run, curl a couple endpoints, clean up.
+- `test-local.sh` — build both services via `docker compose up -d`, curl a few endpoints, leave running.
+
+## Architecture
+
+Two services in one Compose project:
+
+```
+Browser / curl
+      │  http://<domain>            (via Coolify Traefik in prod, or host:8000 locally)
+      ▼
+┌─────────────────┐        http://time:8001/now       ┌───────────────┐
+│  app (FastAPI)  │  ─────────────────────────────▶   │  time (FastAPI) │
+│  port 8000      │  internal Docker DNS by service    │  port 8001      │
+│  PUBLIC         │  name — no external routing        │  INTERNAL       │
+└─────────────────┘                                    └───────────────┘
+```
+
+Only `app` gets a public URL. `time` is reachable only from other services on the Compose network. Swap `time` for a real database / cache / worker later — the calling pattern is the same.
 
 ## Endpoints
 
@@ -18,6 +38,7 @@ Minimal FastAPI starter for the ML Capstone class deployment lab. Use this to wa
 | GET | `/` | `{"hello": "Hello, world"}` — or `{"hello": "Hola, mundo"}` etc. with `?lang=es\|fr\|de\|ja` |
 | GET | `/languages` | `{"supported": ["de", "en", "es", "fr", "ja"]}` |
 | GET | `/health` | `{"ok": true, "version": "0.1.1"}` |
+| GET | `/time` | `{"from_time_service": {"utc": "<iso timestamp>"}}` — proxies the `time` sidecar |
 
 ## Local test
 

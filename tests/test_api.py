@@ -1,3 +1,6 @@
+import json
+from unittest.mock import MagicMock, patch
+
 from fastapi.testclient import TestClient
 from main import app
 
@@ -36,3 +39,21 @@ def test_health_ok():
     body = r.json()
     assert body["ok"] is True
     assert "version" in body
+
+
+def test_time_endpoint_wraps_response_from_time_sidecar():
+    # The /time endpoint calls http://time:8001/now, which only resolves
+    # when docker compose is running. For unit tests we mock the network
+    # call — this is the standard pattern for testing code that depends
+    # on a service boundary without spinning up the other side.
+    fake_body = json.dumps({"utc": "2026-08-20T12:34:56+00:00"}).encode()
+    fake_response = MagicMock()
+    fake_response.read.return_value = fake_body
+    fake_response.__enter__.return_value = fake_response
+    fake_response.__exit__.return_value = False
+
+    with patch("main.urllib.request.urlopen", return_value=fake_response):
+        r = client.get("/time")
+
+    assert r.status_code == 200
+    assert r.json() == {"from_time_service": {"utc": "2026-08-20T12:34:56+00:00"}}
