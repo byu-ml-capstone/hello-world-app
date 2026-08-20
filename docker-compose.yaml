@@ -5,6 +5,11 @@ services:
     # a host port. Do NOT use `ports:` here — the shared cluster server only
     # lets ONE container own each host port at a time, and Coolify's Traefik
     # routes traffic over the internal `coolify` Docker network anyway.
+    #
+    # For LOCAL development, `docker-compose.override.yml` (auto-merged by
+    # `docker compose up`) adds a host port binding so browsers/curls on
+    # your laptop can reach the app. Coolify uses `-f docker-compose.yaml`
+    # explicitly, so the override is invisible in production.
     expose:
       - "8000"
     environment:
@@ -12,23 +17,38 @@ services:
       # tells Coolify to (1) populate that variable with the Application's
       # configured domain, (2) attach this service to the `coolify` Docker
       # network, and (3) auto-generate Traefik labels routing the domain to
-      # this service. Coolify picks up the port from the `expose:` above
-      # (or the Application's Port setting).
+      # this service. The magic is triggered by INTERPOLATION, not by
+      # declaring the var — a bare `- SERVICE_FQDN_APP_8000` crashes
+      # Coolify's parser with "no service selected".
       #
-      # DON'T declare SERVICE_FQDN_* as a bare env-var name (e.g.
-      # `- SERVICE_FQDN_APP_8000`) — that crashes Coolify's parser with
-      # "no service selected". The magic is triggered by INTERPOLATION,
-      # not declaration.
-      #
-      # `APP_URL` is just a convenient env var the app can read to know
-      # its own public URL (useful for building absolute links, callbacks,
-      # etc.). The specific name doesn't matter to Coolify; what matters
-      # is that ${SERVICE_FQDN_APP} appears somewhere in the compose file.
+      # `APP_URL` is arbitrary — Coolify only cares that ${SERVICE_FQDN_APP}
+      # appears. Assigning to APP_URL is a nice idiom because the app can
+      # read its own public URL for building absolute links / callbacks.
       - APP_URL=${SERVICE_FQDN_APP}
+    depends_on:
+      time:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+    restart: unless-stopped
+
+  # Second service — a stand-in for the kind of sidecar you'd add for real
+  # work (database, cache, background worker, local ML model server). This
+  # one serves the current UTC time; `app` reaches it at `http://time:8001`
+  # over the Compose network. INTERNAL ONLY — no `${SERVICE_FQDN_TIME}`,
+  # so Coolify won't route Traefik to it. Only `app` is publicly reachable.
+  time:
+    build: ./time-service
+    expose:
+      - "8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     restart: unless-stopped
