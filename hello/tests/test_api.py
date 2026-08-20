@@ -1,11 +1,18 @@
 import json
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
+import psycopg
 from fastapi.testclient import TestClient
+
+import main
 from main import app
 
 client = TestClient(app)
+
+
+# ---------------------------------------------------------------------------
+# Basic routes — no external dependencies
+# ---------------------------------------------------------------------------
 
 
 def test_hello_default():
@@ -42,11 +49,15 @@ def test_health_ok():
     assert "version" in body
 
 
+# ---------------------------------------------------------------------------
+# /time — mocks the network call to the sidecar
+# ---------------------------------------------------------------------------
+
+
 def test_time_endpoint_wraps_response_from_time_sidecar():
     # The /time endpoint calls http://time:8001/now, which only resolves
-    # when docker compose is running. For unit tests we mock the network
-    # call — this is the standard pattern for testing code that depends
-    # on a service boundary without spinning up the other side.
+    # when docker compose is running. Mock the underlying urlopen so
+    # tests don't need the sidecar container up.
     fake_body = json.dumps({"utc": "2026-08-20T12:34:56+00:00"}).encode()
     fake_response = MagicMock()
     fake_response.read.return_value = fake_body
@@ -60,44 +71,71 @@ def test_time_endpoint_wraps_response_from_time_sidecar():
     assert r.json() == {"from_time_service": {"utc": "2026-08-20T12:34:56+00:00"}}
 
 
-# Helper for the /notes tests below: build a mock psycopg connection whose
-# cursor's execute()/fetchall()/fetchone() return whatever the test wants.
-# Both `conn` and `cur` need to act as context managers because main.py
-# uses `with psycopg.connect(...) as conn, conn.cursor() as cur`.
-def _mock_psycopg_conn(fetchall=None, fetchone=None):
-    cur = MagicMock()
-    cur.__enter__.return_value = cur
-    cur.__exit__.return_value = False
-    if fetchall is not None:
-        cur.fetchall.return_value = fetchall
-    if fetchone is not None:
-        cur.fetchone.return_value = fetchone
-    conn = MagicMock()
-    conn.__enter__.return_value = conn
-    conn.__exit__.return_value = False
-    conn.cursor.return_value = cur
-    return conn
+# ---------------------------------------------------------------------------
+# /notes — mocks at the DAO boundary. This is the payoff of extracting
+# NotesDAO: tests describe what the ROUTE does with DAO results, without
+# entangling psycopg's cursor / context-manager mocking noise.
+# ---------------------------------------------------------------------------
 
 
-def test_notes_list_returns_rows_from_db():
-    fake_ts = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
-    conn = _mock_psycopg_conn(fetchall=[(1, "first note", fake_ts)])
-    with patch("main.psycopg.connect", return_value=conn):
+def test_notes_list_returns_dao_output():
+    fake_rows = [
+        {"id": 1, "body": "first", "created_at": "2026-08-20T12:00:00+00:00"},
+        {"id": 2, "body": "second", "created_at": "2026-08-20T12:01:00+00:00"},
+    ]
+    with patch.object(main.notes_dao, "list_all", return_value=fake_rows):
         r = client.get("/notes")
     assert r.status_code == 200
-    assert r.json() == [
-        {"id": 1, "body": "first note", "created_at": "2026-08-20T12:00:00+00:00"}
-    ]
+    assert r.json() == fake_rows
 
 
-def test_notes_create_returns_inserted_row():
-    fake_ts = datetime(2026, 8, 20, 12, 0, 0, tzinfo=timezone.utc)
-    conn = _mock_psycopg_conn(fetchone=(42, fake_ts))
-    with patch("main.psycopg.connect", return_value=conn):
-        r = client.post("/notes", json={"body": "hello persistence"})
-    assert r.status_code == 201
-    assert r.json() == {
+def test_notes_create_returns_dao_output():
+    fake_row = {
         "id": 42,
         "body": "hello persistence",
         "created_at": "2026-08-20T12:00:00+00:00",
     }
+    with patch.object(main.notes_dao, "insert", return_value=fake_row) as m:
+        r = client.post("/notes", json={"body": "hello persistence"})
+    assert r.status_code == 201
+    assert r.json() == fake_row
+    m.assert_called_once_with("hello persistence")
+
+
+def test_notes_list_returns_503_when_db_unreachable():
+    with patch.object(
+        main.notes_dao, "list_all", side_effect=psycopg.OperationalError("boom")
+    ):
+        r = client.get("/notes")
+    assert r.status_code == 503
+    assert "db unreachable" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# /admin/reset — env-gated destructive endpoint
+# ---------------------------------------------------------------------------
+
+
+def test_admin_reset_forbidden_when_disabled():
+    with patch.object(main, "ADMIN_RESET_ENABLED", False):
+        r = client.post("/admin/reset")
+    assert r.status_code == 403
+    assert "disabled" in r.json()["detail"]
+
+
+def test_admin_reset_calls_dao_when_enabled():
+    with patch.object(main, "ADMIN_RESET_ENABLED", True), patch.object(
+        main.notes_dao, "reset"
+    ) as m:
+        r = client.post("/admin/reset")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    m.assert_called_once_with()
+
+
+def test_admin_reset_returns_503_when_db_unreachable():
+    with patch.object(main, "ADMIN_RESET_ENABLED", True), patch.object(
+        main.notes_dao, "reset", side_effect=psycopg.OperationalError("boom")
+    ):
+        r = client.post("/admin/reset")
+    assert r.status_code == 503

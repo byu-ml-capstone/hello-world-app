@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from greetings import APP_VERSION, GREETINGS, get_greeting
+from notes_dao import NotesDAO
 
 log = logging.getLogger("uvicorn.error")
 
@@ -26,19 +27,20 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://appuser:apppass@db:5432/appdb"
 )
 
-# The `notes` table schema. Kept in code so the app can idempotently
-# ensure the table exists at startup (see the lifespan hook below). The
-# same schema also lives in db/init.sql for the fresh-volume case, but
-# init.sql only runs on postgres's first boot ever — if the data directory
-# gets initialized (even partially) with no `notes` table, init.sql
-# doesn't re-run and the app is stuck. The lifespan hook covers that gap.
-CREATE_NOTES_SQL = """
-CREATE TABLE IF NOT EXISTS notes (
-    id         SERIAL       PRIMARY KEY,
-    body       TEXT         NOT NULL,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+# All Postgres access goes through the DAO. Routes below stay thin — they
+# handle HTTP framing (status codes, error mapping) and delegate the
+# actual SQL to NotesDAO methods.
+notes_dao = NotesDAO(DATABASE_URL)
+
+# Env-gated admin reset endpoint. Off by default — students opt in via
+# ALLOW_ADMIN_RESET=true in the environment (docker-compose.override.yml
+# sets it for local; in Coolify you'd add it to the Application's env
+# vars, use /admin/reset, then remove it).
+ADMIN_RESET_ENABLED = os.environ.get("ALLOW_ADMIN_RESET", "").lower() in (
+    "1",
+    "true",
+    "yes",
 )
-"""
 
 
 @asynccontextmanager
@@ -46,16 +48,14 @@ async def lifespan(_app: FastAPI):
     """Startup: idempotently ensure the notes table exists.
 
     Real apps use proper migrations (Alembic, sqlx-migrate, Prisma, etc.).
-    For a teaching demo, `CREATE TABLE IF NOT EXISTS` at startup is enough
-    and self-heals the "existing volume with no schema" case that init.sql
-    can't recover from on its own.
+    For a teaching demo, `CREATE TABLE IF NOT EXISTS` at startup is
+    enough; the DAO's ensure_schema() encapsulates it.
 
     OperationalError (db not reachable) is swallowed so /health can still
     respond during a partial outage; /notes will surface 503 on request.
     """
     try:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
-            cur.execute(CREATE_NOTES_SQL)
+        notes_dao.ensure_schema()
         log.info("startup: notes table verified/created")
     except psycopg.OperationalError as e:
         log.warning("startup: db unreachable, skipping schema check: %s", e)
@@ -91,13 +91,7 @@ def health():
 
 @app.get("/time")
 def current_time():
-    """Fetch the current UTC time from the internal `time` sidecar.
-
-    Demonstrates the multi-service pattern: services in the same Compose
-    project reach each other by service name over the Docker network.
-    Swap `time` for a real database, cache, or worker later — the calling
-    pattern is the same.
-    """
+    """Fetch the current UTC time from the internal `time` sidecar."""
     try:
         with urllib.request.urlopen(f"{TIME_SERVICE_URL}/now", timeout=3) as resp:
             body = json.loads(resp.read())
@@ -106,43 +100,39 @@ def current_time():
         return {"error": "time service unreachable", "detail": str(e)}
 
 
-# ---------------------------------------------------------------------------
-# /notes — persistent storage demo backed by the `db` (postgres) sidecar.
-#
-# Rows written here survive `docker compose down` + `docker compose up`
-# because the postgres data directory is mounted on the named volume
-# `db-data` declared in docker-compose.yaml. Only `docker compose down -v`
-# (or an explicit `docker volume rm`) removes the data.
-#
-# Connection-per-request is fine for a teaching example. For real load you
-# would use a pool (psycopg_pool.ConnectionPool) held in the lifespan
-# above alongside the schema check.
-# ---------------------------------------------------------------------------
-
-
 @app.get("/notes")
 def list_notes():
     try:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, body, created_at FROM notes ORDER BY id")
-            rows = cur.fetchall()
+        return notes_dao.list_all()
     except psycopg.OperationalError as e:
         raise HTTPException(status_code=503, detail=f"db unreachable: {e}") from e
-    return [
-        {"id": r[0], "body": r[1], "created_at": r[2].isoformat()}
-        for r in rows
-    ]
 
 
 @app.post("/notes", status_code=201)
 def create_note(note: NoteIn):
     try:
-        with psycopg.connect(DATABASE_URL) as conn, conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO notes (body) VALUES (%s) RETURNING id, created_at",
-                (note.body,),
-            )
-            row = cur.fetchone()
+        return notes_dao.insert(note.body)
     except psycopg.OperationalError as e:
         raise HTTPException(status_code=503, detail=f"db unreachable: {e}") from e
-    return {"id": row[0], "body": note.body, "created_at": row[1].isoformat()}
+
+
+@app.post("/admin/reset")
+def admin_reset():
+    """Drop and recreate the notes table. Destructive.
+
+    Env-gated by ALLOW_ADMIN_RESET so you can't hit this by accident
+    on a production Application. To use in Coolify: add
+    ALLOW_ADMIN_RESET=true to the Application's Environment Variables,
+    redeploy, POST here, then remove the env var. In local dev
+    docker-compose.override.yml enables it by default.
+    """
+    if not ADMIN_RESET_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="admin reset disabled; set ALLOW_ADMIN_RESET=true to enable",
+        )
+    try:
+        notes_dao.reset()
+    except psycopg.OperationalError as e:
+        raise HTTPException(status_code=503, detail=f"db unreachable: {e}") from e
+    return {"ok": True, "message": "notes table dropped and recreated (empty)"}
