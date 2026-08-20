@@ -9,6 +9,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # and as students add more modules the glob picks them up automatically.
 COPY *.py ./
 
+# Schema migration SQL files. Applied by notes_dao.apply_migrations() on
+# app startup — see the lifespan hook in main.py.
+COPY migrations/ ./migrations/
+
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \

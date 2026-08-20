@@ -17,12 +17,15 @@ hello-world-app/
 ├── hello/                        # PUBLIC service — Traefik-routed
 │   ├── main.py                   #   FastAPI wiring + endpoints (thin)
 │   ├── greetings.py              #   content + logic (split out from main.py on purpose)
-│   ├── notes_dao.py              #   NotesDAO — all SQL and Postgres access lives here
+│   ├── notes_dao.py              #   NotesDAO — all SQL and migration runner live here
+│   ├── migrations/               #   *.sql files — applied on app startup in filename order
+│   │   ├── 001_create_notes.sql
+│   │   └── 002_add_priority.sql
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── .dockerignore
 │   ├── conftest.py               #   makes hello/ the pytest rootdir
-│   └── tests/test_api.py         #   twelve tests; DAO-boundary + sidecar mocks
+│   └── tests/test_api.py         #   thirteen tests; DAO-boundary + sidecar mocks
 │
 └── time/                         # INTERNAL sidecar — no external routing
     ├── main.py                   #   FastAPI returning UTC time on /now
@@ -62,8 +65,8 @@ Only `hello` gets a public URL. `time` and `db` are reachable only from other se
 | GET | `/languages` | `{"supported": ["de", "en", "es", "fr", "ja"]}` |
 | GET | `/health` | `{"ok": true, "version": "0.1.1"}` |
 | GET | `/time` | `{"from_time_service": {"utc": "<iso timestamp>"}}` — proxies the `time` sidecar |
-| GET | `/notes` | `[{"id": ..., "body": "...", "created_at": "..."}]` — every row in the `notes` table |
-| POST | `/notes` | `{"id": ..., "body": ..., "created_at": ...}` — inserts a row; body: `{"body": "some text"}` |
+| GET | `/notes` | `[{"id": ..., "body": "...", "priority": 0, "created_at": "..."}]` — every row in the `notes` table |
+| POST | `/notes` | `{"id": ..., "body": ..., "priority": ..., "created_at": ...}` — inserts a row; body: `{"body": "some text", "priority": 5}` (priority defaults to 0) |
 | POST | `/admin/reset` | `{"ok": true, ...}` — DROPs + recreates the `notes` table. Env-gated: only works with `ALLOW_ADMIN_RESET=true`. Local dev enables it via `docker-compose.override.yml`; in Coolify you'd add the env var, hit this, then remove it. |
 
 ## Local test

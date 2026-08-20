@@ -23,15 +23,17 @@ each method borrowing a connection from it. Skipped here to keep the
 teaching surface small; upgrade when your load justifies it.
 """
 
+import logging
+from pathlib import Path
+
 import psycopg
 
-CREATE_NOTES_SQL = """
-CREATE TABLE IF NOT EXISTS notes (
-    id         SERIAL       PRIMARY KEY,
-    body       TEXT         NOT NULL,
-    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
-)
-"""
+log = logging.getLogger("uvicorn.error")
+
+# Migrations live in hello/migrations/*.sql, sorted lexicographically.
+# Convention: `NNN_description.sql` with a zero-padded 3-digit prefix so
+# alphabetical sort == intended order (001, 002, ..., 099, 100 all work).
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 
 class NotesDAO:
@@ -42,48 +44,98 @@ class NotesDAO:
 
     # -- schema management ----------------------------------------------------
 
-    def ensure_schema(self) -> None:
-        """Idempotently create the notes table. Called at app startup.
+    def apply_migrations(self) -> list[str]:
+        """Apply any SQL files in migrations/ that haven't been applied yet.
 
-        Uses `CREATE TABLE IF NOT EXISTS`, so it's safe to run on every
-        boot: no-op if the table exists, creates it if not. Handles both
-        the fresh-volume case and the "existing volume with no schema"
-        case (e.g. after a failed deploy that half-initialized the data
-        directory).
+        Idempotent — every applied file's name goes into the `_migrations`
+        tracking table, and future runs skip anything already listed there.
+        Files run in filename order, so students pick names like
+        `001_create_notes.sql`, `002_add_priority.sql`, etc.
+
+        Called from main.py's lifespan hook on every app startup. Both
+        `staging` and `main` (production) run the SAME code from the SAME
+        commit, so applying migrations at deploy time is how staging and
+        prod stay in schema-sync automatically.
+
+        Returns the list of migration filenames that were applied on THIS
+        call (empty list if everything was already up to date).
         """
+        # Ensure the tracking table exists, then read what's already applied.
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
-            cur.execute(CREATE_NOTES_SQL)
+            cur.execute(
+                "CREATE TABLE IF NOT EXISTS _migrations ("
+                "  name       TEXT         PRIMARY KEY,"
+                "  applied_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()"
+                ")"
+            )
+            cur.execute("SELECT name FROM _migrations")
+            already_applied = {row[0] for row in cur.fetchall()}
+
+        pending = sorted(
+            p for p in MIGRATIONS_DIR.glob("*.sql")
+            if p.name not in already_applied
+        )
+
+        newly_applied: list[str] = []
+        for path in pending:
+            sql = path.read_text()
+            # One transaction per migration: if the SQL fails halfway, the
+            # tracking-table insert also rolls back, so we don't record a
+            # migration as applied unless it fully succeeded.
+            with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
+                cur.execute(sql)
+                cur.execute(
+                    "INSERT INTO _migrations (name) VALUES (%s)", (path.name,)
+                )
+            log.info("applied migration %s", path.name)
+            newly_applied.append(path.name)
+
+        if not newly_applied:
+            log.info("no pending migrations")
+        return newly_applied
 
     def reset(self) -> None:
-        """Drop and recreate the notes table.
+        """Destructive — drop the app tables AND the migration tracking table.
 
-        Destructive — loses every row. Only wired up to the env-gated
-        admin endpoint in main.py. Useful when the schema needs to
-        change in a non-additive way (rename column, change type, drop
-        column) and you'd rather blow away the data than write a real
-        migration. In production you'd write an Alembic migration
-        instead; this is a class-project shortcut.
+        The next apply_migrations() call rebuilds everything from
+        migrations/*.sql. Wired to the env-gated /admin/reset endpoint
+        for dev use; in production this is behind ALLOW_ADMIN_RESET.
         """
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
             cur.execute("DROP TABLE IF EXISTS notes")
-            cur.execute(CREATE_NOTES_SQL)
+            cur.execute("DROP TABLE IF EXISTS _migrations")
+        # Re-apply so the caller gets a working (empty) schema back.
+        self.apply_migrations()
 
     # -- queries --------------------------------------------------------------
 
     def list_all(self) -> list[dict]:
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
-            cur.execute("SELECT id, body, created_at FROM notes ORDER BY id")
+            cur.execute(
+                "SELECT id, body, priority, created_at FROM notes ORDER BY id"
+            )
             rows = cur.fetchall()
         return [
-            {"id": r[0], "body": r[1], "created_at": r[2].isoformat()}
+            {
+                "id": r[0],
+                "body": r[1],
+                "priority": r[2],
+                "created_at": r[3].isoformat(),
+            }
             for r in rows
         ]
 
-    def insert(self, body: str) -> dict:
+    def insert(self, body: str, priority: int = 0) -> dict:
         with psycopg.connect(self.database_url) as conn, conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO notes (body) VALUES (%s) RETURNING id, created_at",
-                (body,),
+                "INSERT INTO notes (body, priority) VALUES (%s, %s) "
+                "RETURNING id, created_at",
+                (body, priority),
             )
             row = cur.fetchone()
-        return {"id": row[0], "body": body, "created_at": row[1].isoformat()}
+        return {
+            "id": row[0],
+            "body": body,
+            "priority": priority,
+            "created_at": row[1].isoformat(),
+        }
