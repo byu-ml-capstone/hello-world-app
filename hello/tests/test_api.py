@@ -80,8 +80,8 @@ def test_time_endpoint_wraps_response_from_time_sidecar():
 
 def test_notes_list_returns_dao_output():
     fake_rows = [
-        {"id": 1, "body": "first", "priority": 0, "created_at": "2026-08-20T12:00:00+00:00"},
-        {"id": 2, "body": "second", "priority": 5, "created_at": "2026-08-20T12:01:00+00:00"},
+        {"id": 1, "body": "first", "created_at": "2026-08-20T12:00:00+00:00"},
+        {"id": 2, "body": "second", "created_at": "2026-08-20T12:01:00+00:00"},
     ]
     with patch.object(main.notes_dao, "list_all", return_value=fake_rows):
         r = client.get("/notes")
@@ -89,32 +89,17 @@ def test_notes_list_returns_dao_output():
     assert r.json() == fake_rows
 
 
-def test_notes_create_passes_priority_to_dao():
+def test_notes_create_returns_dao_output():
     fake_row = {
         "id": 42,
         "body": "hello persistence",
-        "priority": 7,
         "created_at": "2026-08-20T12:00:00+00:00",
     }
     with patch.object(main.notes_dao, "insert", return_value=fake_row) as m:
-        r = client.post("/notes", json={"body": "hello persistence", "priority": 7})
+        r = client.post("/notes", json={"body": "hello persistence"})
     assert r.status_code == 201
     assert r.json() == fake_row
-    m.assert_called_once_with("hello persistence", 7)
-
-
-def test_notes_create_defaults_priority_to_zero_when_omitted():
-    fake_row = {
-        "id": 42,
-        "body": "no priority given",
-        "priority": 0,
-        "created_at": "2026-08-20T12:00:00+00:00",
-    }
-    with patch.object(main.notes_dao, "insert", return_value=fake_row) as m:
-        r = client.post("/notes", json={"body": "no priority given"})
-    assert r.status_code == 201
-    assert r.json() == fake_row
-    m.assert_called_once_with("no priority given", 0)
+    m.assert_called_once_with("hello persistence")
 
 
 def test_notes_list_returns_503_when_db_unreachable():
