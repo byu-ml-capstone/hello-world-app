@@ -65,30 +65,31 @@ services:
 
   # Third service — a real Postgres database with persistent storage.
   # `hello` reaches it at postgresql://...@db:5432/... over the Compose
-  # network. INTERNAL ONLY. Two mounts:
+  # network. INTERNAL ONLY.
   #
-  #   db-data           — the named volume that makes data survive
-  #                       `docker compose down`, redeploys, and reboots.
-  #                       Defined at the bottom of this file.
+  # Built from db/Dockerfile, which is a two-line wrap around the official
+  # postgres:16-alpine image that COPYs our init.sql into
+  # /docker-entrypoint-initdb.d/. We build our own image (instead of using
+  # `image: postgres:16-alpine` + a bind-mount for init.sql) because
+  # Coolify's build/deploy flow doesn't always make bind-mount sources
+  # visible to the container runtime — the COPY happens at image-build
+  # time on the same host, so it always works.
   #
-  #   ./db/init.sql     — a bind-mount into the postgres image's
-  #                       /docker-entrypoint-initdb.d/. The image auto-runs
-  #                       any SQL in that directory ONLY on first startup
-  #                       (empty data dir). See db/init.sql for details.
+  # db-data (bottom of file) is the named volume that makes data survive
+  # `docker compose down`, redeploys, and host reboots.
   #
   # Coolify per-Application isolation: staging and production each get
   # their OWN db-data volume — they do NOT share the database. That's the
   # correct default (never mix staging data with prod data). If you need
   # to move data between environments, use `pg_dump` and `psql < dump`.
   db:
-    image: postgres:16-alpine
+    build: ./db
     environment:
       - POSTGRES_USER=appuser
       - POSTGRES_PASSWORD=apppass
       - POSTGRES_DB=appdb
     volumes:
       - db-data:/var/lib/postgresql/data
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
       interval: 5s
