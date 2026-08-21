@@ -1,0 +1,25 @@
+# Copy this file to terraform.tfvars and fill in real values.
+# terraform.tfvars is git-ignored - never commit real tokens.
+#
+# Usage:
+#   cp terraform.tfvars.example terraform.tfvars
+#   $EDITOR terraform.tfvars
+#   terraform init
+#   terraform apply
+
+# Your Coolify API token. Create at ml-capstone-admin.cs.byu.edu ->
+# top-left dashboard -> Keys & Tokens -> API Tokens -> + New Token.
+# Give it root permission (or view + create + deploy at minimum).
+coolify_token = "REPLACE_ME"
+
+# Your GitHub Personal Access Token. Easiest way:
+#   gh auth token
+# and paste the result. Needs `repo` scope (for reading + writing secrets
+# on repos in the byu-ml-capstone org).
+github_token = "REPLACE_ME"
+
+# Your GitHub repo name under byu-ml-capstone. This is also used as the
+# Coolify Project name and the base for staging + prod domains:
+#   staging: http://<repo_name>-staging.ml-capstone.cs.byu.edu
+#   prod:    http://<repo_name>.ml-capstone.cs.byu.edu
+repo_name = "REPLACE_ME"
