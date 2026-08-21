@@ -1,26 +1,21 @@
 output "project_uuid" {
-  description = "Coolify Project UUID - useful for debugging or manual API calls."
+  description = "Coolify Project UUID — useful when creating Applications through the UI (Setup Step 5-6). Match this against the URL bar in Coolify."
   value       = coolify_project.app.uuid
 }
 
-output "staging_app_uuid" {
-  description = "Coolify Application UUID for the staging deploy."
-  value       = coolify_application.staging.uuid
-}
-
-output "prod_app_uuid" {
-  description = "Coolify Application UUID for the production deploy."
-  value       = coolify_application.prod.uuid
+output "staging_env_uuid" {
+  description = "Coolify staging Environment UUID."
+  value       = coolify_environment.staging.uuid
 }
 
 output "staging_url" {
-  description = "Where staging will be reachable once deployed (Coolify auto-assigns a domain; may not match exactly what the manual guide taught)."
-  value       = "http://${var.repo_name}-staging.${local.admin_domain_base}"
+  description = "Where staging will be reachable once you finish creating the Application in Coolify and push to the staging branch."
+  value       = "http://${var.repo_name}-staging.${var.app_domain_base}"
 }
 
 output "prod_url" {
-  description = "Where prod will be reachable once deployed."
-  value       = "http://${var.repo_name}.${local.admin_domain_base}"
+  description = "Where prod will be reachable once you finish creating the Application in Coolify and merge to main."
+  value       = "http://${var.repo_name}.${var.app_domain_base}"
 }
 
 output "next_steps" {
@@ -28,19 +23,29 @@ output "next_steps" {
   value = <<-EOT
 
     Terraform created:
-      Coolify Project:      ${var.repo_name}
-      Environments:         staging, production
-      Applications:         2 (staging + prod), both set to Manual deploy
-      GitHub Actions secrets: 3 (COOLIFY_DEPLOY_WEBHOOK_STAGING, ..._PROD, COOLIFY_API_TOKEN)
+      Coolify Project:            ${var.repo_name}   (uuid=${coolify_project.app.uuid})
+      Coolify Environments:       staging, production
+      GitHub Actions secret:      COOLIFY_API_TOKEN
 
-    IMPORTANT - you still need to set the domain manually (Coolify's API
-    doesn't let Terraform pin custom domains at create time). Open each
-    Application in Coolify's UI -> Domains tab -> replace the auto-generated
-    sslip.io domain with:
-      staging:  http://${var.repo_name}-staging.${local.admin_domain_base}
-      prod:     http://${var.repo_name}.${local.admin_domain_base}
+    What's still manual (per student-guide Setup Steps 5, 6, 7, 9):
 
-    Then push a commit to your `staging` branch to trigger the first deploy
-    through GitHub Actions -> Coolify.
+      1. Coolify UI -> your Project (${var.repo_name}) -> production Environment
+         -> + Add Resource -> GitHub Repo (with GitHub App).
+         Wire it to ${var.github_org}/${var.repo_name} branch `main`,
+         Build Pack Dockerfile, port 8000, Auto Deploy = Manual only.
+         Set the Domain to http://${var.repo_name}.${var.app_domain_base}.
+
+      2. Repeat for the staging Environment: branch `staging`, Domain
+         http://${var.repo_name}-staging.${var.app_domain_base}.
+
+      3. From each Application's Webhooks tab, copy the Deploy Webhook URL.
+
+      4. GitHub repo Settings -> Secrets -> add
+         COOLIFY_DEPLOY_WEBHOOK_STAGING (from staging Application)
+         COOLIFY_DEPLOY_WEBHOOK_PROD    (from production Application)
+
+    Why isn't this all Terraformed? Coolify's create-Application API endpoint
+    has a team-scoping bug that rejects system-wide GitHub Apps from tokens
+    outside Root Team. Until it's fixed, Applications get created via UI.
   EOT
 }
