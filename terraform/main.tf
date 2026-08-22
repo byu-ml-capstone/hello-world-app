@@ -68,7 +68,13 @@ resource "coolify_application" "staging" {
   git_repository   = "${var.github_org}/${var.repo_name}"
   git_branch       = "staging"
   build_pack       = "dockercompose"
-  ports_exposes    = "8000"
+  # Coolify silently forces ports_exposes="80" server-side for dockercompose
+  # apps (the field is really about Coolify's proxy ingress, not container
+  # ports). Sending "8000" causes the bindtech-xyz provider to error with
+  # "provider produced inconsistent result" on state read-back. The value
+  # doesn't affect routing — Coolify + Traefik pick container ports from
+  # docker-compose.yaml directly.
+  ports_exposes = "80"
 
   # Coolify's API rejects the flat `domains` field for build_pack=dockercompose
   # (must use per-service `docker_compose_domains`, which the bindtech-xyz
@@ -89,7 +95,13 @@ resource "coolify_application" "production" {
   git_repository   = "${var.github_org}/${var.repo_name}"
   git_branch       = "main"
   build_pack       = "dockercompose"
-  ports_exposes    = "8000"
+  # Coolify silently forces ports_exposes="80" server-side for dockercompose
+  # apps (the field is really about Coolify's proxy ingress, not container
+  # ports). Sending "8000" causes the bindtech-xyz provider to error with
+  # "provider produced inconsistent result" on state read-back. The value
+  # doesn't affect routing — Coolify + Traefik pick container ports from
+  # docker-compose.yaml directly.
+  ports_exposes = "80"
 
   is_auto_deploy_enabled = false
 }
