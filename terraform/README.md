@@ -1,26 +1,34 @@
 # Bonus: IaC for the Coolify + GitHub wiring
 
-**Prerequisite: you should have already finished Setup Steps 1–11 of the student guide by hand at least once.** This bonus lab teaches nothing about *what* Coolify is — you already know that. It teaches **Infrastructure as Code** by re-doing parts of Setup Steps 4 + 8 as declarative HCL. When you're done, one `terraform apply` recreates that state from a bare fresh repo.
+**Prerequisite: finish Setup Steps 1–11 of the student guide by hand at least once.** This bonus lab teaches nothing about *what* Coolify is — you already know that. It teaches **Infrastructure as Code** by re-doing Setup Steps 4–9 as declarative HCL. When you're done, one `terraform apply` recreates the entire Coolify + GitHub wiring for a bare-fresh repo, no clicks required.
 
-## What Terraform does
+## What Terraform creates
 
-- Creates the **Coolify Project** named after your repo
-- Creates the **`staging` Environment** (the `production` environment is auto-created when the project is born)
-- Writes the **`COOLIFY_API_TOKEN` GitHub Actions secret** on your repo
+Everything in Setup Steps 4–9, in a single apply:
 
-## What Terraform doesn't do (still manual)
+- **Coolify Project** named after your repo (Step 4)
+- **`staging` Environment** — the `production` environment is auto-created when the Project is born
+- **`staging` Application** wired to your repo's `staging` branch, `dockercompose` build pack, port 8000, staging domain, auto-deploy off (Step 5)
+- **`production` Application** wired to your repo's `main` branch, ditto config, production domain (Step 6)
+- **`COOLIFY_API_TOKEN` GitHub Actions secret** — shared by both deploy jobs (Step 8)
+- **`COOLIFY_DEPLOY_WEBHOOK_STAGING` secret** — URL is `<coolify-endpoint>/deploy?uuid=<staging_app_uuid>`, constructed in HCL from the Application UUID (Step 7)
+- **`COOLIFY_DEPLOY_WEBHOOK_PROD` secret** — same shape, prod Application (Step 9)
 
-- **Coolify Applications** stay in the UI (Setup Steps 5–6). See "Why" below.
-- **`COOLIFY_DEPLOY_WEBHOOK_STAGING` + `COOLIFY_DEPLOY_WEBHOOK_PROD` secrets** — copy each from Coolify's Applications → Webhooks tab and paste into GitHub's UI (Setup Steps 7 + 9).
-- **Custom domains** on the Applications — set via Coolify UI's Domains tab.
+Nothing is left for the UI. Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys. Merge to `main` → CI runs tests, POSTs the prod webhook, prod deploys.
 
-Think of Terraform as covering the "clerical" wiring around the Application-create step — every UI moment that isn't picking a GitHub App or clicking through the Coolify create-Application wizard.
+## Requires a locally-patched Coolify instance
 
-## Why not Terraform-all-of-it?
+The `coolify_application` resources call `POST /api/v1/applications/private-github-app` with your student team-scoped token. Stock Coolify (as of v4.3.7 and `main` at the time of writing) has a bug — the endpoint returns `HTTP 404: Github App not found` for GitHub Apps flagged `is_system_wide`, which is exactly how the class `byu-ml-capstone-coolify` App is set up.
 
-Coolify's `POST /api/v1/applications/private-github-app` endpoint has a team-scoping bug: it doesn't respect the `is_system_wide` flag on GitHub Apps. The `byu-ml-capstone-coolify` App is installed on the whole org and lives in Root Team; student tokens live in their own team. Result: `terraform apply` fails with `HTTP 404: Github App not found` when it tries to create an Application from a student token.
+The class Coolify instance runs a local patch for this. If `terraform apply` fails on the Application resources with the 404, the patch has been wiped (Coolify auto-updated, or the container was recreated). Re-apply from rigel:
 
-Confirmed via direct API call (same failure, not a provider issue). Filed as a Coolify issue; when it's fixed, this lab can add the Application resources back.
+```bash
+./scripts/repatch-coolify.sh --apply
+```
+
+Upstream tracking: [coollabsio/coolify#11449](https://github.com/coollabsio/coolify/issues/11449) (bug), [PR #11451](https://github.com/coollabsio/coolify/pull/11451) (fix). Once the fix ships in an official Coolify release and rigel updates past it, delete the patch script and this section.
+
+Forking to a different Coolify instance? You'll hit the same 404 unless that instance is also patched. Either wait for upstream, or patch your own.
 
 ## Prerequisites
 
@@ -29,8 +37,8 @@ Confirmed via direct API call (same failure, not a provider issue). Filed as a C
    brew tap hashicorp/tap
    brew install hashicorp/tap/terraform
    ```
-2. **A Coolify API token.** ml-capstone-admin.cs.byu.edu → top-left dashboard menu → **Keys & Tokens → API Tokens → + New Token**. Description = whatever; **Permissions = root**. Copy immediately (Coolify shows it once).
-3. **A GitHub Personal Access Token** with `repo` scope. Easiest source: `gh auth token`. Otherwise Settings → Developer settings → Personal access tokens → Tokens (classic) → new one with `repo` scope. Full walkthrough is in `terraform.tfvars.example`.
+2. **A Coolify API token.** ml-capstone-admin.cs.byu.edu → top-left dashboard menu → **Keys & Tokens → API Tokens → + New Token**. Description = whatever; **Permissions = root** (or view + create + deploy + delete). Copy immediately (Coolify shows it once).
+3. **A GitHub Personal Access Token** with `repo` scope. Easiest: `gh auth token`. Otherwise Settings → Developer settings → Personal access tokens → Tokens (classic) → new one with `repo` scope. Full walkthrough is in `terraform.tfvars.example`.
 4. **Your GitHub repo already exists** under `byu-ml-capstone` from templating `hello-world-app` (Setup Step 1).
 
 ## Usage
@@ -50,12 +58,12 @@ terraform plan
 terraform apply
 ```
 
-3 resources get created. Then follow the `next_steps` output — it walks you through the UI clicks to finish the Application setup.
+Seven resources get created (Project + Environment + two Applications + three GitHub secrets). Then follow the `next_steps` output — it tells you which branches to push to trigger each deploy.
 
 ## Files
 
-- `main.tf` — providers + Project + Environment + api-token secret
-- `variables.tf` — inputs + class-default overrides
+- `main.tf` — providers + Project + Environment + Applications + three secrets
+- `variables.tf` — inputs + class-default overrides (server UUID, GitHub App UUID)
 - `outputs.tf` — UUIDs, URLs, next-steps message
 - `terraform.tfvars.example` — copy-to-tfvars template with detailed comments
 - `.gitignore` — blocks `terraform.tfvars`, `.terraform/`, `*.tfstate`
@@ -66,8 +74,10 @@ terraform apply
 terraform destroy
 ```
 
-Removes the Project (cascades to its Environments) and the GitHub secret. Applications you created via UI aren't managed by Terraform, so they stay — delete them separately in Coolify UI if you want a truly fresh slate.
+Removes the Project (cascades to its Environments and Applications) and all three GitHub secrets. Full teardown.
 
-## The point (even at reduced scope)
+## The point
 
-You're seeing the shape of declarative infrastructure — inputs in tfvars, a plan preview, apply, state file, drift detection, `destroy` reverses everything. That mental shift — "click here, then here" → "declare this shape, let the tool make it happen" — is IaC in one sitting. It generalizes to Terraform for AWS, Kubernetes YAML, Nix, Pulumi, everything modern. The specific coverage gap (Applications stay in UI) is Coolify-provider-immaturity, not an IaC-doesn't-work story.
+You're seeing the shape of declarative infrastructure end-to-end — inputs in tfvars, a plan preview, apply, state file, drift detection, `destroy` reverses everything. That mental shift — "click here, then here, then copy this URL to that other UI" → "declare this shape, let the tool make it happen" — is IaC in one sitting. It generalizes to Terraform for AWS, Kubernetes YAML, Nix, Pulumi, everything modern.
+
+The one caveat: this lab depends on a patched Coolify. That's exactly the kind of real-world "you're waiting on an upstream fix and running a local patch" situation you'll hit repeatedly in production infrastructure work. The dependency is documented here; the patch is scripted (`scripts/repatch-coolify.sh`); the upstream ticket + PR are linked. When upstream merges, the patch is removed and this section deleted. That's how you manage this kind of technical debt.

@@ -49,3 +49,15 @@ variable "app_domain_base" {
   type        = string
   default     = "ml-capstone.cs.byu.edu"
 }
+
+variable "coolify_server_uuid" {
+  description = "UUID of the Coolify Server that student Applications deploy on. There's only one server on the class cluster (`ml-capstone` on rigel), shared across every team via Coolify's team-server assignment. Look it up with: `curl -H 'Authorization: Bearer <token>' https://ml-capstone-admin.cs.byu.edu/api/v1/servers`."
+  type        = string
+  default     = "4wm7nqdsetjvmhe5w859y45p"
+}
+
+variable "coolify_github_app_uuid" {
+  description = "UUID of the Coolify GitHub App source that lets Coolify pull private repos from `byu-ml-capstone`. The App is registered in Coolify's Root Team with `is_system_wide = true`, so every team can reference it. Look it up with: `curl -H 'Authorization: Bearer <token>' https://ml-capstone-admin.cs.byu.edu/api/v1/github-apps`."
+  type        = string
+  default     = "onb2ftjqxx6lxxqwa20ku6ve"
+}

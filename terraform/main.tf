@@ -23,24 +23,27 @@ provider "github" {
 }
 
 # ---------------------------------------------------------------------------
-# What this lab covers (and what it doesn't)
+# What this lab creates (mirrors Setup Steps 4-9 of the student guide)
 # ---------------------------------------------------------------------------
-# Terraform handles the "clerical wiring" of Setup Steps 4 + 8:
-#   - Coolify Project (Step 4)
-#   - Coolify `staging` Environment (Step 4; `production` auto-created)
-#   - COOLIFY_API_TOKEN GitHub Actions secret (part of Step 8)
+# One `terraform apply` builds the entire Coolify + GitHub wiring:
 #
-# What Terraform does NOT handle (still manual, per Setup Steps 5-7 and 9):
-#   - Coolify Applications (`staging` + `production`). Coolify's
-#     private-github-app create endpoint has a team-scoping bug that rejects
-#     `is_system_wide` GitHub Apps when the calling token isn't in the same
-#     team as the App. The `byu-ml-capstone-coolify` App lives in Root Team
-#     and student tokens live in their own team, so create fails with 404.
-#     Until Coolify fixes this, Applications get created via the Coolify UI
-#     the way the student-guide already teaches.
-#   - COOLIFY_DEPLOY_WEBHOOK_STAGING + COOLIFY_DEPLOY_WEBHOOK_PROD secrets.
-#     Copy the Deploy Webhook URL from each Application's Coolify UI ->
-#     Webhooks tab, add manually via GitHub UI (Settings -> Secrets).
+#   - Coolify Project                          (Step 4)
+#   - Coolify staging Environment              (Step 4; production auto-created)
+#   - Coolify Application: staging             (Step 5)
+#   - Coolify Application: production          (Step 6)
+#   - COOLIFY_API_TOKEN GitHub secret          (Step 8)
+#   - COOLIFY_DEPLOY_WEBHOOK_STAGING secret    (Step 7)
+#   - COOLIFY_DEPLOY_WEBHOOK_PROD secret       (Step 9)
+#
+# Deploy webhook URLs are deterministic from each Application's UUID
+# (`<endpoint>/deploy?uuid=<app_uuid>`), so no post-apply UI copy-paste.
+#
+# Requires the class Coolify instance to be running the local patch for
+# coollabsio/coolify#11449 — without it, the coolify_application resources
+# fail with `HTTP 404: Github App not found` on team-scoped tokens.
+# Upstream tracking: coollabsio/coolify PR #11451.
+# See coolify-runbook.md "Post-install patches" for reapplying after Coolify
+# updates. Delete this comment once the fix ships upstream.
 # ---------------------------------------------------------------------------
 
 resource "coolify_project" "app" {
@@ -53,10 +56,64 @@ resource "coolify_environment" "staging" {
   name         = "staging"
 }
 
-# COOLIFY_API_TOKEN gets reused across your app's staging + production deploys
-# in the GitHub Actions workflow. Same value for both, so no need to duplicate.
+# The `production` Environment is auto-created by Coolify when the Project
+# is born, so we don't declare it as a resource — the production Application
+# below references it by name.
+
+resource "coolify_application" "staging" {
+  project_uuid     = coolify_project.app.uuid
+  environment_uuid = coolify_environment.staging.uuid
+  server_uuid      = var.coolify_server_uuid
+  github_app_uuid  = var.coolify_github_app_uuid
+  git_repository   = "${var.github_org}/${var.repo_name}"
+  git_branch       = "staging"
+  build_pack       = "dockercompose"
+  ports_exposes    = "8000"
+  domains          = "http://${var.repo_name}-staging.${var.app_domain_base}"
+
+  # CI/CD triggers deploys explicitly via the webhook after tests pass;
+  # let Coolify's own GitHub-push auto-deploy stay off to avoid double-firing.
+  is_auto_deploy_enabled = false
+}
+
+resource "coolify_application" "production" {
+  project_uuid     = coolify_project.app.uuid
+  environment_name = "production"
+  server_uuid      = var.coolify_server_uuid
+  github_app_uuid  = var.coolify_github_app_uuid
+  git_repository   = "${var.github_org}/${var.repo_name}"
+  git_branch       = "main"
+  build_pack       = "dockercompose"
+  ports_exposes    = "8000"
+  domains          = "http://${var.repo_name}.${var.app_domain_base}"
+
+  is_auto_deploy_enabled = false
+}
+
+# COOLIFY_API_TOKEN is reused by both staging + production deploy jobs in the
+# CI workflow. One token, one secret.
 resource "github_actions_secret" "coolify_api_token" {
   repository  = var.repo_name
   secret_name = "COOLIFY_API_TOKEN"
   value       = var.coolify_token
+}
+
+# Deploy webhook URLs are `<endpoint>/deploy?uuid=<application_uuid>`.
+# coolify_endpoint already includes the /api/v1 suffix, so this appends
+# /deploy?uuid=... directly. CI workflow POSTs here with the bearer token.
+locals {
+  webhook_staging = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.staging.uuid}"
+  webhook_prod    = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.production.uuid}"
+}
+
+resource "github_actions_secret" "deploy_webhook_staging" {
+  repository  = var.repo_name
+  secret_name = "COOLIFY_DEPLOY_WEBHOOK_STAGING"
+  value       = local.webhook_staging
+}
+
+resource "github_actions_secret" "deploy_webhook_prod" {
+  repository  = var.repo_name
+  secret_name = "COOLIFY_DEPLOY_WEBHOOK_PROD"
+  value       = local.webhook_prod
 }
