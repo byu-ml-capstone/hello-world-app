@@ -25,17 +25,17 @@ Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys.
 
 ## Requires a locally-patched Coolify instance
 
-The `coolify_application` resources call `POST /api/v1/applications/private-github-app` with your student team-scoped token. Stock Coolify (as of v4.3.7 and `main` at the time of writing) has a bug — the endpoint returns `HTTP 404: Github App not found` for GitHub Apps flagged `is_system_wide`, which is exactly how the class `byu-ml-capstone-coolify` App is set up.
+The `coolify_application` resources call `POST /api/v1/applications/private-github-app` with your student team-scoped token. Stock Coolify (as of v4.3.7) has a bug: the endpoint returns `HTTP 404: Github App not found` for GitHub Apps flagged `is_system_wide` — exactly how the class `byu-ml-capstone-coolify` App is registered.
 
-The class Coolify instance runs a local patch for this. If `terraform apply` fails on the Application resources with the 404, the patch has been wiped (Coolify auto-updated, or the container was recreated). Re-apply from rigel:
+The class Coolify instance runs a local patch that fixes this. If `terraform apply` fails on the Application resources with the 404, the patch got wiped (Coolify auto-updated, or the container was recreated). Reapply from rigel:
 
 ```bash
 ./scripts/repatch-coolify.sh --apply
 ```
 
-Upstream tracking: [coollabsio/coolify#11449](https://github.com/coollabsio/coolify/issues/11449) (bug), [PR #11451](https://github.com/coollabsio/coolify/pull/11451) (fix — closed without merge on 2026-08-21; maintainer said "already fixed in next" but the fix isn't actually there yet). Likely resolved when Coolify v5 ships, since the `v5.x` branch removes this endpoint entirely. Until then this lab depends on the local patch. When v5 lands and rigel migrates, retest, and if the bug is genuinely gone, delete the patch script and this section.
+Upstream tracking: [coollabsio/coolify#11449](https://github.com/coollabsio/coolify/issues/11449) (bug), [PR #11451](https://github.com/coollabsio/coolify/pull/11451) (fix — **closed without merge** on 2026-08-21; the fix is expected to land in Coolify v5's API rewrite, no v4.x release will carry it). Until v5 ships stable and rigel migrates, the local patch is the answer. When that happens, retest against v5, and if the bug is gone, delete the patch script (`scripts/repatch-coolify.sh`) and this whole section.
 
-Forking to a different Coolify instance? You'll hit the same 404 unless that instance is also patched. Either wait for upstream, or patch your own.
+Forking to a different Coolify instance? You'll hit the same 404 unless that instance is also patched.
 
 ## Prerequisites
 
@@ -85,6 +85,9 @@ Removes the Project (cascades to its Environments and Applications) and all thre
 
 ## The point
 
-You're seeing the shape of declarative infrastructure end-to-end — inputs in tfvars, a plan preview, apply, state file, drift detection, `destroy` reverses everything. That mental shift — "click here, then here, then copy this URL to that other UI" → "declare this shape, let the tool make it happen" — is IaC in one sitting. It generalizes to Terraform for AWS, Kubernetes YAML, Nix, Pulumi, everything modern.
+You're seeing the shape of declarative infrastructure end-to-end — inputs in tfvars, a plan preview, apply, state file, drift detection, `destroy` reverses everything. That mental shift — "click here, then here, then copy this URL to that other UI" → "declare this shape, let the tool make it happen" — is IaC in one sitting. It generalizes: Terraform for AWS, Kubernetes YAML, Nix, Pulumi, all the same shape.
 
-The one caveat: this lab depends on a patched Coolify. That's exactly the kind of real-world "you're waiting on an upstream fix and running a local patch" situation you'll hit repeatedly in production infrastructure work. The dependency is documented here; the patch is scripted (`scripts/repatch-coolify.sh`); the upstream ticket + PR are linked. When upstream merges, the patch is removed and this section deleted. That's how you manage this kind of technical debt.
+The two caveats are also the point:
+
+- **This lab depends on a patched Coolify.** That's exactly the kind of real-world "waiting on an upstream fix while running a local patch" situation you hit constantly in production infra work. The dependency is named, the patch is scripted (`scripts/repatch-coolify.sh` on rigel), the upstream ticket and PR are linked, the exit criteria is written down. That whole shape — "we know it's here, we know how to remove it, we know when" — is what managing this class of technical debt looks like.
+- **The pretty-domain step is manual.** The bindtech-xyz/coolify provider doesn't model dockercompose per-service domains yet. We tried three ways around it (a `terraform_data` provisioner, a `magodo/restful` operation, a two-step PATCH with `docker_compose_raw`), each hit a different provider or API limitation, and each workaround was more scaffolding than a UI click would ever be. Sometimes IaC's honest answer is "here's the 90% that automates cleanly, plus one documented manual step" instead of a fragile automation that fights the tools.

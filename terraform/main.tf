@@ -36,14 +36,17 @@ provider "github" {
 #   - COOLIFY_DEPLOY_WEBHOOK_PROD secret       (Step 9)
 #
 # Deploy webhook URLs are deterministic from each Application's UUID
-# (`<endpoint>/deploy?uuid=<app_uuid>`), so no post-apply UI copy-paste.
+# (`<endpoint>/deploy?uuid=<app_uuid>`), so no post-apply UI copy-paste for
+# those. The one manual step remaining is pasting the pretty domain into
+# Coolify UI per Application (see the "Pretty domains" block at the bottom
+# of this file for why).
 #
 # Requires the class Coolify instance to be running the local patch for
 # coollabsio/coolify#11449 — without it, the coolify_application resources
 # fail with `HTTP 404: Github App not found` on team-scoped tokens.
-# Upstream tracking: coollabsio/coolify PR #11451.
-# See coolify-runbook.md "Post-install patches" for reapplying after Coolify
-# updates. Delete this comment once the fix ships upstream.
+# Upstream PR #11451 was closed without merge; the patch is our long-term
+# fix for the v4.x Coolify lifetime. See coolify-runbook.md §16
+# "Post-install patches" for reapplying after Coolify updates.
 # ---------------------------------------------------------------------------
 
 resource "coolify_project" "app" {
@@ -60,6 +63,27 @@ resource "coolify_environment" "staging" {
 # is born, so we don't declare it as a resource — the production Application
 # below references it by name.
 
+# ---------------------------------------------------------------------------
+# Applications (staging + production)
+# ---------------------------------------------------------------------------
+# Two Applications backed by the same repo, wired to different branches:
+# staging → `staging` branch, production → `main`. Both are dockercompose
+# build packs pointing at the repo's docker-compose.yaml.
+#
+# ports_exposes = "80": Coolify silently forces this value server-side for
+# dockercompose apps (the field is Coolify's proxy ingress port, not a
+# container port). Sending anything else causes the bindtech-xyz provider
+# to error with "provider produced inconsistent result" on state read-back.
+# Actual container-to-container routing is picked from docker-compose.yaml
+# directly by Coolify + Traefik.
+#
+# is_auto_deploy_enabled = false: Coolify's own GitHub-push auto-deploy
+# stays off. The CI workflow (.github/workflows/ci.yml) explicitly POSTs
+# each Application's deploy webhook after tests pass, which is the single
+# source of "when to deploy". Enabling both paths would double-fire on
+# every push.
+# ---------------------------------------------------------------------------
+
 resource "coolify_application" "staging" {
   project_uuid     = coolify_project.app.uuid
   environment_uuid = coolify_environment.staging.uuid
@@ -68,22 +92,8 @@ resource "coolify_application" "staging" {
   git_repository   = "${var.github_org}/${var.repo_name}"
   git_branch       = "staging"
   build_pack       = "dockercompose"
-  # Coolify silently forces ports_exposes="80" server-side for dockercompose
-  # apps (the field is really about Coolify's proxy ingress, not container
-  # ports). Sending "8000" causes the bindtech-xyz provider to error with
-  # "provider produced inconsistent result" on state read-back. The value
-  # doesn't affect routing — Coolify + Traefik pick container ports from
-  # docker-compose.yaml directly.
-  ports_exposes = "80"
+  ports_exposes    = "80"
 
-  # Coolify's API rejects the flat `domains` field for build_pack=dockercompose
-  # (must use per-service `docker_compose_domains`, which the bindtech-xyz
-  # provider doesn't expose yet). Auto-generated sslip.io URL is functional
-  # but ugly — set the pretty class-wildcard domain via Coolify UI's
-  # Domains tab after apply, or wait for provider support / Coolify v5.
-
-  # CI/CD triggers deploys explicitly via the webhook after tests pass;
-  # let Coolify's own GitHub-push auto-deploy stay off to avoid double-firing.
   is_auto_deploy_enabled = false
 }
 
@@ -95,31 +105,40 @@ resource "coolify_application" "production" {
   git_repository   = "${var.github_org}/${var.repo_name}"
   git_branch       = "main"
   build_pack       = "dockercompose"
-  # Coolify silently forces ports_exposes="80" server-side for dockercompose
-  # apps (the field is really about Coolify's proxy ingress, not container
-  # ports). Sending "8000" causes the bindtech-xyz provider to error with
-  # "provider produced inconsistent result" on state read-back. The value
-  # doesn't affect routing — Coolify + Traefik pick container ports from
-  # docker-compose.yaml directly.
-  ports_exposes = "80"
+  ports_exposes    = "80"
 
   is_auto_deploy_enabled = false
 }
 
-# COOLIFY_API_TOKEN is reused by both staging + production deploy jobs in the
-# CI workflow. One token, one secret.
+# ---------------------------------------------------------------------------
+# GitHub Actions secrets (consumed by .github/workflows/ci.yml)
+# ---------------------------------------------------------------------------
+# COOLIFY_API_TOKEN is reused by both staging + production deploy jobs.
+# COOLIFY_DEPLOY_WEBHOOK_{STAGING,PROD} are Coolify deploy trigger URLs,
+# deterministic from each Application's UUID
+# (`<coolify-endpoint>/deploy?uuid=<application_uuid>`) — no need to
+# copy them out of Coolify UI post-apply.
+# ---------------------------------------------------------------------------
+
+locals {
+  # Pretty per-environment URLs — used in outputs and would be used as the
+  # `domains` on each Application if the bindtech-xyz provider supported
+  # per-service `docker_compose_domains` (see "Pretty domains" block below).
+  compose_service_name  = "hello"
+  staging_pretty_domain = "http://${var.repo_name}-staging.${var.app_domain_base}"
+  prod_pretty_domain    = "http://${var.repo_name}.${var.app_domain_base}"
+
+  # Deploy webhook URLs (POSTed by CI to trigger a Coolify deploy after
+  # tests pass). coolify_endpoint already ends with /api/v1, so append
+  # /deploy?uuid=... directly.
+  webhook_staging = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.staging.uuid}"
+  webhook_prod    = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.production.uuid}"
+}
+
 resource "github_actions_secret" "coolify_api_token" {
   repository  = var.repo_name
   secret_name = "COOLIFY_API_TOKEN"
   value       = var.coolify_token
-}
-
-# Deploy webhook URLs are `<endpoint>/deploy?uuid=<application_uuid>`.
-# coolify_endpoint already includes the /api/v1 suffix, so this appends
-# /deploy?uuid=... directly. CI workflow POSTs here with the bearer token.
-locals {
-  webhook_staging = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.staging.uuid}"
-  webhook_prod    = "${var.coolify_endpoint}/deploy?uuid=${coolify_application.production.uuid}"
 }
 
 resource "github_actions_secret" "deploy_webhook_staging" {
@@ -137,29 +156,21 @@ resource "github_actions_secret" "deploy_webhook_prod" {
 # ---------------------------------------------------------------------------
 # Pretty domains — one manual UI click per Application (see outputs.tf)
 # ---------------------------------------------------------------------------
-# Setting per-service domains on dockercompose Applications is not something
-# terraform can do end-to-end today. Chain of provider/API limitations:
+# Setting per-service domains on dockercompose Applications isn't something
+# terraform can do end-to-end today. Three-deep chain of provider/API
+# limitations, all rooted in the coolify provider being immature:
 #
-#   1. The bindtech-xyz/coolify provider exposes only a flat `domains` field.
-#   2. Coolify's API rejects that field for build_pack=dockercompose (must
-#      use per-service `docker_compose_domains` instead).
-#   3. Coolify's UPDATE endpoint doesn't allow `docker_compose_raw` in its
-#      allowedFields list, and `docker_compose_domains` requires
-#      `docker_compose_raw` to be non-empty first. That field is only
-#      populated by Coolify on first deploy, or set at Application create
-#      (which the bindtech-xyz provider doesn't expose either).
+#   1. bindtech-xyz/coolify exposes only a flat `domains` field.
+#   2. Coolify's API rejects that field for build_pack=dockercompose —
+#      must use per-service `docker_compose_domains` instead.
+#   3. `docker_compose_domains` requires `docker_compose_raw` to be
+#      pre-populated. Coolify's UPDATE endpoint doesn't allow that field,
+#      and the provider doesn't expose it at CREATE time. Only paths to
+#      populating it are Coolify's first deploy (async) or the UI's
+#      "Load Compose File" button (a Livewire action, not a public API).
 #
-# Nets out to: this last step is a manual UI click. The `next_steps` output
-# tells the student exactly what to paste and where.
-#
-# Real fixes worth doing at some point: fork bindtech-xyz/coolify to add
-# `docker_compose_raw` at Application create time and `docker_compose_domains`
-# as a settable field, OR wait for Coolify v5 where the API rewrite may
-# obviate all of this. Track upstream in tickets/coolify-upstream/.
+# Nets out to a single UI click per Application. `next_steps` output tells
+# the student exactly what to paste. Revisit when either the bindtech-xyz
+# provider adds the missing fields, or Coolify v5 ships stable and its
+# rewritten API handles per-service domains cleanly.
 # ---------------------------------------------------------------------------
-
-locals {
-  compose_service_name  = "hello"
-  staging_pretty_domain = "http://${var.repo_name}-staging.${var.app_domain_base}"
-  prod_pretty_domain    = "http://${var.repo_name}.${var.app_domain_base}"
-}

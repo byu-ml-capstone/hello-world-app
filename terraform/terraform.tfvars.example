@@ -63,12 +63,11 @@ repo_name = "REPLACE_ME"
 # ---------------------------------------------------------------------------
 # Everything below has a default matching the BYU ml-capstone class, so
 # class students don't need to touch any of it. Uncomment + change only
-# if you're using this template outside the class:
+# if you're using this template outside the class (different GitHub org,
+# your own Coolify install, different wildcard domain, etc.).
 #
-#   * different GitHub org (or a personal account)
-#   * your own Coolify install
-#   * your own hardware / different Docker network
-#
-# github_org       = "byu-ml-capstone"
-# coolify_endpoint = "https://ml-capstone-admin.cs.byu.edu/api/v1"
-# app_domain_base  = "ml-capstone.cs.byu.edu"
+# github_org              = "byu-ml-capstone"
+# coolify_endpoint        = "https://ml-capstone-admin.cs.byu.edu/api/v1"
+# app_domain_base         = "ml-capstone.cs.byu.edu"
+# coolify_server_uuid     = "4wm7nqdsetjvmhe5w859y45p"
+# coolify_github_app_uuid = "onb2ftjqxx6lxxqwa20ku6ve"
