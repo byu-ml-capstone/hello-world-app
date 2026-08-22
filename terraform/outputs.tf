@@ -19,12 +19,12 @@ output "production_app_uuid" {
 }
 
 output "staging_url" {
-  description = "URL where staging serves once the CI workflow's first deploy job succeeds. Push to the `staging` branch to trigger."
+  description = "URL where staging serves AFTER you paste it into Coolify UI (see next_steps). Coolify's auto-generated sslip.io URL is available via `terraform state show coolify_application.staging` under the `fqdn` field if you want to hit the app before setting the pretty domain."
   value       = local.staging_pretty_domain
 }
 
 output "prod_url" {
-  description = "URL where production serves once the CI workflow's first deploy job succeeds. Merge to `main` to trigger."
+  description = "URL where production serves AFTER you paste it into Coolify UI (see next_steps). Same auto-sslip.io caveat as staging_url."
   value       = local.prod_pretty_domain
 }
 
@@ -41,15 +41,27 @@ output "next_steps" {
                               COOLIFY_DEPLOY_WEBHOOK_STAGING
                               COOLIFY_DEPLOY_WEBHOOK_PROD
 
-    Nothing left to click. To deploy:
+    ONE UI click remaining per Application, then you're done (see the
+    "Pretty domains" note in this file's header for why terraform can't do
+    this last step end-to-end today):
+
+      Coolify UI -> your Project (${var.repo_name}) -> staging environment
+        -> your Application -> Configuration -> Domains -> under service
+        `${local.compose_service_name}`, paste:
+          ${local.staging_pretty_domain}
+        -> Save
+
+      Repeat for the production Application, pasting:
+          ${local.prod_pretty_domain}
+
+    Then to deploy:
 
       1. `git push origin staging` — CI runs tests, then POSTs the staging
-         webhook. Watch the deploy in Coolify UI, then hit staging_url:
+         webhook. Watch the deploy in Coolify UI, then hit:
            ${local.staging_pretty_domain}
 
       2. Open a PR from `staging` to `main`, merge — CI runs tests, then POSTs
-         the production webhook. Watch the deploy in Coolify UI, then hit
-         prod_url:
+         the production webhook. Watch the deploy in Coolify UI, then hit:
            ${local.prod_pretty_domain}
 
     Tear it down when you're done exploring:

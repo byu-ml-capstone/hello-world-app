@@ -16,13 +16,12 @@ Everything in Setup Steps 4–9, in a single apply:
 
 Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys. Merge to `main` → CI runs tests, POSTs the prod webhook, prod deploys.
 
-**Multi-provider setup.** This lab uses three providers, each doing what it's best at:
+**One thing terraform can't fully automate: pretty domains.** After `terraform apply` succeeds, you'll paste the class-wildcard URL into Coolify's UI (one text field, one Save click, per Application — the `next_steps` output tells you exactly what to paste and where). Without that step, your app serves at a Coolify-auto-generated `<uuid>.128.187.112.8.sslip.io` URL, which is functional but ugly. Why the workaround: (1) the `bindtech-xyz/coolify` provider only exposes a flat `domains` field, (2) Coolify's API rejects that field on dockercompose apps (needs per-service `docker_compose_domains` instead), (3) `docker_compose_domains` requires `docker_compose_raw` to be pre-populated, which Coolify's UPDATE endpoint doesn't accept and the coolify provider doesn't expose at CREATE time. That's a three-deep chain of provider/API limitations — worth fixing upstream but not by adding polling scaffolding to a bonus lab.
+
+**Multi-provider setup.** This lab uses two providers, each doing what it's best at:
 
 - **`bindtech-xyz/coolify`** — Coolify Project, Environment, Applications.
 - **`integrations/github`** — GitHub Actions secrets on your student repo.
-- **`magodo/restful`** — the one thing `bindtech-xyz` doesn't cover: PATCHing per-service `docker_compose_domains` on the two Applications so the pretty class-wildcard URL routes to the `hello` service. Coolify's API rejects the flat `domains` field on dockercompose apps and the coolify provider hasn't exposed the per-service structure yet, so we cover that gap with a `restful_operation` block per Application.
-
-This "one main provider + a generic REST provider for the last-mile field the main one doesn't cover" is a real IaC pattern — worth internalizing. Delete the `restful` provider + `restful_operation` blocks when `bindtech-xyz/coolify` adds `docker_compose_domains` support or when we migrate to Coolify v5.
 
 ## Requires a locally-patched Coolify instance
 
