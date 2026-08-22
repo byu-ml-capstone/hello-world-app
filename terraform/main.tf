@@ -69,7 +69,12 @@ resource "coolify_application" "staging" {
   git_branch       = "staging"
   build_pack       = "dockercompose"
   ports_exposes    = "8000"
-  domains          = "http://${var.repo_name}-staging.${var.app_domain_base}"
+
+  # Coolify's API rejects the flat `domains` field for build_pack=dockercompose
+  # (must use per-service `docker_compose_domains`, which the bindtech-xyz
+  # provider doesn't expose yet). Auto-generated sslip.io URL is functional
+  # but ugly — set the pretty class-wildcard domain via Coolify UI's
+  # Domains tab after apply, or wait for provider support / Coolify v5.
 
   # CI/CD triggers deploys explicitly via the webhook after tests pass;
   # let Coolify's own GitHub-push auto-deploy stay off to avoid double-firing.
@@ -85,7 +90,6 @@ resource "coolify_application" "production" {
   git_branch       = "main"
   build_pack       = "dockercompose"
   ports_exposes    = "8000"
-  domains          = "http://${var.repo_name}.${var.app_domain_base}"
 
   is_auto_deploy_enabled = false
 }

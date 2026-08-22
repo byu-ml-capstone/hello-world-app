@@ -8,13 +8,15 @@ Everything in Setup Steps 4–9, in a single apply:
 
 - **Coolify Project** named after your repo (Step 4)
 - **`staging` Environment** — the `production` environment is auto-created when the Project is born
-- **`staging` Application** wired to your repo's `staging` branch, `dockercompose` build pack, port 8000, staging domain, auto-deploy off (Step 5)
-- **`production` Application** wired to your repo's `main` branch, ditto config, production domain (Step 6)
+- **`staging` Application** wired to your repo's `staging` branch, `dockercompose` build pack, port 8000, auto-deploy off (Step 5)
+- **`production` Application** wired to your repo's `main` branch, ditto config (Step 6)
 - **`COOLIFY_API_TOKEN` GitHub Actions secret** — shared by both deploy jobs (Step 8)
 - **`COOLIFY_DEPLOY_WEBHOOK_STAGING` secret** — URL is `<coolify-endpoint>/deploy?uuid=<staging_app_uuid>`, constructed in HCL from the Application UUID (Step 7)
 - **`COOLIFY_DEPLOY_WEBHOOK_PROD` secret** — same shape, prod Application (Step 9)
 
-Nothing is left for the UI. Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys. Merge to `main` → CI runs tests, POSTs the prod webhook, prod deploys.
+Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys. Merge to `main` → CI runs tests, POSTs the prod webhook, prod deploys.
+
+One thing Terraform can't set right now: **pretty domains**. Coolify's API rejects the flat `domains` field on `dockercompose` build packs (must use per-service `docker_compose_domains`), and the `bindtech-xyz/coolify` provider doesn't expose that structure yet. Applications get Coolify-auto-generated `<uuid>.128.187.112.8.sslip.io` URLs — functional but ugly. If you want the pretty `<repo>-staging.ml-capstone.cs.byu.edu` domain, set it via Coolify UI's Domains tab on each Application after `terraform apply` (Setup Step 6's Domains bullet). One-time click per Application; Coolify persists it.
 
 ## Requires a locally-patched Coolify instance
 
