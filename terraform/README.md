@@ -16,7 +16,13 @@ Everything in Setup Steps 4–9, in a single apply:
 
 Push to `staging` → CI runs tests, POSTs the staging webhook, staging deploys. Merge to `main` → CI runs tests, POSTs the prod webhook, prod deploys.
 
-One thing Terraform can't set right now: **pretty domains**. Coolify's API rejects the flat `domains` field on `dockercompose` build packs (must use per-service `docker_compose_domains`), and the `bindtech-xyz/coolify` provider doesn't expose that structure yet. Applications get Coolify-auto-generated `<uuid>.128.187.112.8.sslip.io` URLs — functional but ugly. If you want the pretty `<repo>-staging.ml-capstone.cs.byu.edu` domain, set it via Coolify UI's Domains tab on each Application after `terraform apply` (Setup Step 6's Domains bullet). One-time click per Application; Coolify persists it.
+**Multi-provider setup.** This lab uses three providers, each doing what it's best at:
+
+- **`bindtech-xyz/coolify`** — Coolify Project, Environment, Applications.
+- **`integrations/github`** — GitHub Actions secrets on your student repo.
+- **`magodo/restful`** — the one thing `bindtech-xyz` doesn't cover: PATCHing per-service `docker_compose_domains` on the two Applications so the pretty class-wildcard URL routes to the `hello` service. Coolify's API rejects the flat `domains` field on dockercompose apps and the coolify provider hasn't exposed the per-service structure yet, so we cover that gap with a `restful_operation` block per Application.
+
+This "one main provider + a generic REST provider for the last-mile field the main one doesn't cover" is a real IaC pattern — worth internalizing. Delete the `restful` provider + `restful_operation` blocks when `bindtech-xyz/coolify` adds `docker_compose_domains` support or when we migrate to Coolify v5.
 
 ## Requires a locally-patched Coolify instance
 

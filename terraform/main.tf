@@ -9,6 +9,13 @@ terraform {
       source  = "integrations/github"
       version = "~> 6.0"
     }
+    # magodo/restful covers the one thing bindtech-xyz/coolify doesn't:
+    # PATCHing docker_compose_domains on dockercompose applications
+    # (see the restful_operation blocks near the bottom of this file).
+    restful = {
+      source  = "magodo/restful"
+      version = "~> 0.20"
+    }
   }
 }
 
@@ -20,6 +27,15 @@ provider "coolify" {
 provider "github" {
   token = var.github_token
   owner = var.github_org
+}
+
+provider "restful" {
+  # base_url is the host root (without /api/v1) — each restful_operation
+  # resource specifies the full path including /api/v1.
+  base_url = replace(var.coolify_endpoint, "/api/v1", "")
+  header = {
+    Authorization = "Bearer ${var.coolify_token}"
+  }
 }
 
 # ---------------------------------------------------------------------------
@@ -132,4 +148,58 @@ resource "github_actions_secret" "deploy_webhook_prod" {
   repository  = var.repo_name
   secret_name = "COOLIFY_DEPLOY_WEBHOOK_PROD"
   value       = local.webhook_prod
+}
+
+# ---------------------------------------------------------------------------
+# Pretty per-service domains via docker_compose_domains
+# ---------------------------------------------------------------------------
+# The bindtech-xyz/coolify provider only exposes the flat `domains` field,
+# and Coolify's API rejects that field for build_pack=dockercompose
+# (must use per-service `docker_compose_domains`). Fill the gap with a
+# `restful_operation` from magodo/restful — a native terraform resource
+# that PATCHes the field on the existing Application.
+#
+# `restful_operation` is a "one-time API call" resource: it fires the PATCH
+# on create, re-fires when `body` changes, and does nothing on destroy
+# (the domain lives on the parent Application, which cascade-deletes with
+# the project via the coolify provider). No drift detection — if someone
+# changes the domain via the Coolify UI, terraform won't notice until the
+# `body` here changes. That's the same trade-off you'd get from a
+# `local-exec` provisioner, but with cleaner HCL and no `curl` dependency
+# on the machine running apply.
+#
+# `SERVICE_NAME` is the docker-compose service name from docker-compose.yaml
+# that should own the public URL (see the `SERVICE_FQDN_HELLO` note in that
+# file). Change it if you rename the service or route a different one.
+#
+# Delete this block (and drop the restful provider) when bindtech-xyz adds
+# docker_compose_domains support, or when we migrate to Coolify v5.
+# ---------------------------------------------------------------------------
+
+locals {
+  compose_service_name  = "hello"
+  staging_pretty_domain = "http://${var.repo_name}-staging.${var.app_domain_base}"
+  prod_pretty_domain    = "http://${var.repo_name}.${var.app_domain_base}"
+}
+
+resource "restful_operation" "staging_domain" {
+  path   = "/api/v1/applications/${coolify_application.staging.uuid}"
+  method = "PATCH"
+  body = {
+    docker_compose_domains = [{
+      name   = local.compose_service_name
+      domain = local.staging_pretty_domain
+    }]
+  }
+}
+
+resource "restful_operation" "production_domain" {
+  path   = "/api/v1/applications/${coolify_application.production.uuid}"
+  method = "PATCH"
+  body = {
+    docker_compose_domains = [{
+      name   = local.compose_service_name
+      domain = local.prod_pretty_domain
+    }]
+  }
 }
