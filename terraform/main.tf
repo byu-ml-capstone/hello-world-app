@@ -180,8 +180,39 @@ locals {
   compose_service_name  = "hello"
   staging_pretty_domain = "http://${var.repo_name}-staging.${var.app_domain_base}"
   prod_pretty_domain    = "http://${var.repo_name}.${var.app_domain_base}"
+
+  # Coolify rejects `docker_compose_domains` unless `docker_compose_raw` is
+  # already populated on the Application. Normally Coolify populates that by
+  # cloning the repo on first deploy, but we PATCH domains BEFORE any deploy
+  # has happened. Workaround: read the compose file from the local repo (one
+  # dir up from the terraform module — students clone the whole template,
+  # keeping this relative path stable) and PATCH it into docker_compose_raw
+  # ourselves, then PATCH the domains.
+  compose_raw = file("${path.module}/../docker-compose.yaml")
 }
 
+# Step 1 of 2: seed docker_compose_raw so Coolify's per-service validation
+# has something to check the `name` field against.
+resource "restful_operation" "staging_compose_raw" {
+  path   = "/api/v1/applications/${coolify_application.staging.uuid}"
+  method = "PATCH"
+  body = {
+    docker_compose_raw = local.compose_raw
+  }
+}
+
+resource "restful_operation" "production_compose_raw" {
+  path   = "/api/v1/applications/${coolify_application.production.uuid}"
+  method = "PATCH"
+  body = {
+    docker_compose_raw = local.compose_raw
+  }
+}
+
+# Step 2 of 2: PATCH the per-service domain. depends_on forces this to run
+# AFTER the corresponding compose_raw is populated (terraform can't infer
+# the ordering because the two operations target the same parent resource
+# via literal strings, not resource-attribute references).
 resource "restful_operation" "staging_domain" {
   path   = "/api/v1/applications/${coolify_application.staging.uuid}"
   method = "PATCH"
@@ -191,6 +222,8 @@ resource "restful_operation" "staging_domain" {
       domain = local.staging_pretty_domain
     }]
   }
+
+  depends_on = [restful_operation.staging_compose_raw]
 }
 
 resource "restful_operation" "production_domain" {
@@ -202,4 +235,6 @@ resource "restful_operation" "production_domain" {
       domain = local.prod_pretty_domain
     }]
   }
+
+  depends_on = [restful_operation.production_compose_raw]
 }
