@@ -26,7 +26,7 @@ The class Coolify instance runs a local patch for this. If `terraform apply` fai
 ./scripts/repatch-coolify.sh --apply
 ```
 
-Upstream tracking: [coollabsio/coolify#11449](https://github.com/coollabsio/coolify/issues/11449) (bug), [PR #11451](https://github.com/coollabsio/coolify/pull/11451) (fix). Once the fix ships in an official Coolify release and rigel updates past it, delete the patch script and this section.
+Upstream tracking: [coollabsio/coolify#11449](https://github.com/coollabsio/coolify/issues/11449) (bug), [PR #11451](https://github.com/coollabsio/coolify/pull/11451) (fix — closed without merge on 2026-08-21; maintainer said "already fixed in next" but the fix isn't actually there yet). Likely resolved when Coolify v5 ships, since the `v5.x` branch removes this endpoint entirely. Until then this lab depends on the local patch. When v5 lands and rigel migrates, retest, and if the bug is genuinely gone, delete the patch script and this section.
 
 Forking to a different Coolify instance? You'll hit the same 404 unless that instance is also patched. Either wait for upstream, or patch your own.
 
