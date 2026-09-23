@@ -11,10 +11,15 @@
 # 1) Coolify API token
 # ---------------------------------------------------------------------------
 # Create at https://ml-capstone-admin.cs.byu.edu
+# FIRST switch to your own team in the team switcher -- the token is scoped to
+# whichever team is active when you create it, and that decides where your
+# Applications get created.
 # -> click the Coolify wordmark top-left to go to the instance dashboard
 # -> left sidebar: Keys & Tokens -> API Tokens -> + New Token
 # -> Description: `terraform-lab` (or anything)
-# -> Permissions: check `root` (or check all of view + create + deploy + delete)
+# -> Permissions: check `write` and `deploy`
+#    (you will NOT see a `root` option -- that exists only in the instructor's
+#     Root Team, and this lab does not need it)
 # -> Create -> COPY IMMEDIATELY (Coolify shows the token exactly once)
 # -> paste below.
 coolify_token = "REPLACE_ME"
@@ -59,7 +64,22 @@ github_token = "REPLACE_ME"
 repo_name = "REPLACE_ME"
 
 # ---------------------------------------------------------------------------
-# 4) (Optional) Overrides for forking to a different setup
+# 4) Your Coolify server UUID -- REQUIRED, and specific to YOUR team
+# ---------------------------------------------------------------------------
+# Coolify gives each team its own server record. They are all named
+# `ml-capstone` and they all point at the same physical machine, but each has a
+# different UUID -- so there is no value that works for everyone.
+#
+# Look yours up with the token you pasted above:
+#
+#   curl -H "Authorization: Bearer <your-token>" \
+#     https://ml-capstone-admin.cs.byu.edu/api/v1/servers
+#
+# Exactly one server comes back. Copy its `uuid` here.
+coolify_server_uuid = "REPLACE_ME"
+
+# ---------------------------------------------------------------------------
+# 5) (Optional) Overrides for forking to a different setup
 # ---------------------------------------------------------------------------
 # Everything below has a default matching the BYU ml-capstone class, so
 # class students don't need to touch any of it. Uncomment + change only
@@ -69,5 +89,4 @@ repo_name = "REPLACE_ME"
 # github_org              = "byu-ml-capstone"
 # coolify_endpoint        = "https://ml-capstone-admin.cs.byu.edu/api/v1"
 # app_domain_base         = "ml-capstone.cs.byu.edu"
-# coolify_server_uuid     = "4wm7nqdsetjvmhe5w859y45p"
 # coolify_github_app_uuid = "onb2ftjqxx6lxxqwa20ku6ve"

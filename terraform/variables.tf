@@ -51,9 +51,26 @@ variable "app_domain_base" {
 }
 
 variable "coolify_server_uuid" {
-  description = "UUID of the Coolify Server that student Applications deploy on. There's only one server on the class cluster (`ml-capstone` on rigel), shared across every team via Coolify's team-server assignment. Look it up with: `curl -H 'Authorization: Bearer <token>' https://ml-capstone-admin.cs.byu.edu/api/v1/servers`."
+  description = <<-EOT
+    UUID of the Coolify Server your Applications deploy on.
+
+    There is NO shared default, because there is no shared server row: Coolify
+    creates a separate `servers` record per team, all named `ml-capstone` but
+    each with its own UUID. Your team's UUID is not your neighbour's.
+
+    Look yours up with the same token you put in coolify_token:
+
+      curl -H "Authorization: Bearer <your-token>" \
+        https://ml-capstone-admin.cs.byu.edu/api/v1/servers
+
+    You will get back exactly one server. Copy its `uuid`.
+  EOT
   type        = string
-  default     = "4wm7nqdsetjvmhe5w859y45p"
+
+  validation {
+    condition     = length(trimspace(var.coolify_server_uuid)) > 0
+    error_message = "coolify_server_uuid is required. Look yours up with: curl -H 'Authorization: Bearer <your-token>' https://ml-capstone-admin.cs.byu.edu/api/v1/servers"
+  }
 }
 
 variable "coolify_github_app_uuid" {
