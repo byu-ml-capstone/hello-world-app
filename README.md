@@ -12,6 +12,7 @@ hello-world-app/
 ├── docker-compose.override.yml   # local-dev only (host port bind); ignored by Coolify
 ├── smoke-test.sh                 # docker compose up + smoke-test everything; also `./smoke-test.sh URL` to test a deployed instance
 ├── README.md
+├── .gitignore                    # Python/Docker noise + terraform secrets and state
 ├── .github/workflows/ci.yml      # 3-job pipeline: test → deploy-staging → deploy-prod
 │
 ├── hello/                        # PUBLIC service — Traefik-routed
@@ -26,13 +27,24 @@ hello-world-app/
 │   ├── conftest.py               #   makes hello/ the pytest rootdir
 │   └── tests/test_api.py         #   twelve tests; DAO-boundary + sidecar mocks
 │
-└── time/                         # INTERNAL sidecar — no external routing
-    ├── main.py                   #   FastAPI returning UTC time on /now
-    ├── requirements.txt
-    └── Dockerfile
+├── time/                         # INTERNAL sidecar — no external routing
+│   ├── main.py                   #   FastAPI returning UTC time on /now
+│   ├── requirements.txt
+│   └── Dockerfile
+│
+└── terraform/                    # NOT a service — provisions the Coolify side
+    ├── main.tf                   #   the resources: project, 2 envs, 2 apps, 3 GitHub secrets
+    ├── variables.tf              #   every input, what it means, which have class defaults
+    ├── outputs.tf                #   URLs + UUIDs printed after `apply`
+    ├── terraform.tfvars.example  #   copy to terraform.tfvars and fill in 4 values
+    ├── .terraform.lock.hcl       #   pins provider versions + checksums — committed on purpose
+    ├── .gitignore                #   keeps terraform.tfvars (real tokens) and *.tfstate out of git
+    └── README.md                 #   the deeper walkthrough, incl. why domains stay manual
 ```
 
 `hello/` is the only public service. `time/` is a lightweight sidecar demo. There's no `db/` subdirectory — the Postgres sidecar in `docker-compose.yaml` uses the stock `postgres:16-alpine` image directly. Postgres is a generic storage service; the app owns its schema and materializes it at startup via a FastAPI lifespan hook in `hello/main.py`. That's the modern Django/Rails/Alembic convention: db container = dumb storage, app codebase = schema source of truth. Add more sidecars the same way: their own subdirectory (if they need one) or just an `image:` line in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
+
+`terraform/` is the odd one out — it isn't a service and nothing in it ships inside a container. It describes the Coolify and GitHub resources your app needs *around* it: the Project, the two Environments, the two Applications, and the three Actions secrets. You can ignore it entirely and click through the Coolify UI instead; see [Provisioning with Terraform](#provisioning-with-terraform) below.
 
 ## Architecture
 
