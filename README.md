@@ -98,8 +98,12 @@ This app is deploy-ready for the ml-capstone cluster. Steps:
 
 1. Fork or copy this directory into your team's GitHub repo.
 2. Follow **`student-guide.md` → Part B → Setup: Create your repo, then sign in and create your Coolify Applications** (in the top-level of `ml-capstone-platform`) to wire up the Coolify Applications + GitHub secrets.
-3. Push to `staging` branch → GitHub Actions runs unit tests → fires the Coolify staging webhook → your app is live at `https://<team>-staging.ml-capstone.cs.byu.edu`.
-4. Merge `staging` → `main` → same flow to prod at `https://<team>.ml-capstone.cs.byu.edu`.
+3. Push to `staging` branch → GitHub Actions runs unit tests → fires the Coolify staging webhook → your app is live at `http://<your-repo>-staging.ml-capstone.cs.byu.edu`.
+4. Merge `staging` → `main` → same flow to prod at `http://<your-repo>.ml-capstone.cs.byu.edu`.
+
+> **`http://`, not `https://`.** The CS wildcard certificate covers one level under `cs.byu.edu`, and these hostnames are two levels deep, so student apps are routed on the HTTP entrypoint only. An `https://` request gets `503 no available server` rather than a certificate warning. Traffic is encrypted at the VPN layer.
+>
+> The hostname comes from your **repository name**, not your team name.
 
 Bump `APP_VERSION` in `greetings.py` on each meaningful change so you can eyeball `/health` after a deploy and confirm it's the new build.
 
