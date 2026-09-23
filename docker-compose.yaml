@@ -40,10 +40,16 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
-      interval: 30s
+      # Probe often while starting, rarely once healthy. `start_interval`
+      # applies during `start_period`, so a fresh container is detected healthy
+      # within a few seconds; after that the steady-state `interval` takes over.
+      # Without this split you either wait 30s to learn a deploy worked, or you
+      # poll forever at startup speed and fill the logs for no reason.
+      start_period: 30s
+      start_interval: 2s
+      interval: 5m
       timeout: 5s
       retries: 3
-      start_period: 15s
     restart: unless-stopped
 
   # Second service — a stand-in for the kind of sidecar you'd add for real
@@ -57,10 +63,14 @@ services:
       - "8001"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
-      interval: 30s
+      # `hello` waits on this via depends_on: service_healthy, so it needs to go
+      # healthy fast — hence start_interval — but nothing needs a reading every
+      # 30s for the rest of the container's life.
+      start_period: 20s
+      start_interval: 2s
+      interval: 5m
       timeout: 5s
       retries: 3
-      start_period: 10s
     restart: unless-stopped
 
   # Third service — a real Postgres database with persistent storage.
@@ -90,10 +100,15 @@ services:
       - db-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
-      interval: 5s
+      # This was the noisiest of the three: pg_isready every 5 seconds, forever.
+      # Postgres still has to be confirmed ready quickly, because `hello` blocks
+      # on it via depends_on — start_interval does that without the steady-state
+      # cost. 5s -> 5m is roughly 17,000 fewer probes per container per day.
+      start_period: 30s
+      start_interval: 2s
+      interval: 5m
       timeout: 5s
-      retries: 10
-      start_period: 10s
+      retries: 5
     restart: unless-stopped
 
 volumes:
