@@ -6,6 +6,9 @@ provider "registry.terraform.io/bindtech-xyz/coolify" {
   constraints = "~> 0.1.0"
   hashes = [
     "h1:/8KoFpkGdowobWX+lZuCXKXc+L5/aLpSbLRC17jbXe8=",
+    "h1:/r3UomdAzOKjuTNtrtr2Z0YCr8PE1PUb8W3UvBL+9CA=",
+    "h1:0tT1Qz3zDUyw13nL3nzNtFscLlx2+L/8yeBAJrJNlIM=",
+    "h1:DR+85Cr/7Iq+fQ73DOvolrXa+VwSZWNeVxwmkHHvFfg=",
     "zh:0fad9c94f32cdd80e11bd895e5784fb7d7136cdedf8b738f0a1d82be7318f95d",
     "zh:12c08f1d43f68a86ff743965d5116d7ff0221700cb9685d9a37cc575af9968e2",
     "zh:12d8700e6eb43791c53f92a5b9447ee8be1df8208baa32af8d51157bd6fc99c4",
@@ -27,6 +30,9 @@ provider "registry.terraform.io/integrations/github" {
   version     = "6.13.0"
   constraints = "~> 6.0"
   hashes = [
+    "h1:2kD+4leuV8tBBXv+EPeehmfW6cDhIzVki61OXsGCtRI=",
+    "h1:Mug81HyUTKKMngXMOtBxuQ8ge3dVnzt9tGcF9SxLcVE=",
+    "h1:RhCWa2aaFVKF/HzeR0fkIxZmoJvkGrv07hE0z09aPQs=",
     "h1:y0Sujto8gttV86innNp/LTMzq7CqsFpBs7XKH8AlMl4=",
     "zh:0ab29fc21699f34345cf0bbbe44745fd1b143b7c73b410c1dc4abe05ffad0a84",
     "zh:1aed10d06755d420bb3a893bf548ab2932297a9d094c04c5a8501e949ca186ed",
