@@ -44,7 +44,7 @@ Forking to a different Coolify instance? You'll hit the same 404 unless that ins
    brew tap hashicorp/tap
    brew install hashicorp/tap/terraform
    ```
-2. **A Coolify API token.** ml-capstone-admin.cs.byu.edu → top-left dashboard menu → **Keys & Tokens → API Tokens → + New Token**. Description = whatever; **Permissions = root** (or view + create + deploy + delete). Copy immediately (Coolify shows it once).
+2. **A Coolify API token.** ml-capstone-admin.cs.byu.edu → top-left dashboard menu → **Keys & Tokens → API Tokens → + New Token**. Description = whatever; **Permissions = `root`** — the boxes are mutually exclusive, so `write` and `deploy` cannot both be selected, and Terraform needs both. `root` here is root of your own team only. Click **Create Token**, then copy it immediately (Coolify shows it once).
 3. **A GitHub Personal Access Token** with `repo` scope. Easiest: `gh auth token`. Otherwise Settings → Developer settings → Personal access tokens → Tokens (classic) → new one with `repo` scope. Full walkthrough is in `terraform.tfvars.example`.
 4. **Your GitHub repo already exists** under `byu-ml-capstone` from templating `hello-world-app` (Setup Step 1).
 

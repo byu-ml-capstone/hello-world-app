@@ -17,9 +17,13 @@
 # -> click the Coolify wordmark top-left to go to the instance dashboard
 # -> left sidebar: Keys & Tokens -> API Tokens -> + New Token
 # -> Description: `terraform-lab` (or anything)
-# -> Permissions: check `write` and `deploy`
-#    (you will NOT see a `root` option -- that exists only in the instructor's
-#     Root Team, and this lab does not need it)
+# -> Permissions: check `root`
+#    Coolify's permission boxes are mutually exclusive -- clicking `deploy`
+#    clears the others -- so `write` and `deploy` cannot both be held. Terraform
+#    needs both, and `root` covers them. It means root of YOUR OWN TEAM, not of
+#    the whole instance. If `root` is greyed out you are on a team you are only
+#    a member of; switch to your own team first.
+# -> Click "Create Token" once everything above is filled in.
 # -> Create -> COPY IMMEDIATELY (Coolify shows the token exactly once)
 # -> paste below.
 coolify_token = "REPLACE_ME"
