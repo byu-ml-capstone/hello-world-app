@@ -45,7 +45,8 @@ coolify_token = "REPLACE_ME"
 #   4. Personal access tokens -> Tokens (classic)
 #   5. Generate new token -> Generate new token (classic)
 #   6. Note: `terraform-coolify-lab` (or anything)
-#   7. Expiration: 30 days (or 90; avoid "no expiration" - security foot-gun)
+#   7. Expiration: pick something that covers the course. You can generate
+#      another if it lapses -- but avoid "No expiration".
 #   8. Scopes: check the TOP-LEVEL `repo` box (includes all sub-checkboxes)
 #   9. Scroll to bottom -> Generate token
 #  10. COPY IMMEDIATELY (GitHub only shows it once) -> paste below.
