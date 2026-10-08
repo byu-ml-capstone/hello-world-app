@@ -2,7 +2,7 @@
 --
 -- Runs on the first startup against a fresh database. Subsequent
 -- startups skip this file because its name is recorded in the
--- _migrations tracking table (see hello/notes_dao.py apply_migrations()).
+-- _migrations tracking table (see backend/notes_dao.py apply_migrations()).
 --
 -- `IF NOT EXISTS` makes the file safe to re-apply against an existing
 -- database, which matters when adopting migrations partway through a

@@ -124,7 +124,7 @@ locals {
   # Pretty per-environment URLs — used in outputs and would be used as the
   # `domains` on each Application if the bindtech-xyz provider supported
   # per-service `docker_compose_domains` (see "Pretty domains" block below).
-  compose_service_name  = "hello"
+  compose_service_name  = "frontend"
   staging_pretty_domain = "http://${var.repo_name}-staging.${var.app_domain_base}"
   prod_pretty_domain    = "http://${var.repo_name}.${var.app_domain_base}"
 

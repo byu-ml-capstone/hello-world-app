@@ -3,23 +3,26 @@
 # `-f docker-compose.yaml` explicitly, so nothing here reaches production.
 #
 # Purpose:
-#   1. Expose the `hello` service on host port 8000 so your browser / curl
+#   1. Expose the `frontend` service on host port 8000 so your browser / curl
 #      on your laptop can reach it. In production, Traefik handles domain
 #      routing and no host-port binding is needed (or desired — see the
 #      ports vs expose note in docker-compose.yaml).
 #   2. Enable the destructive /admin/reset endpoint so you can wipe the
 #      notes table during local dev without needing to set env vars by
-#      hand. In production it's off by default; students enable it in
-#      Coolify's Environment Variables UI when they need to reset, then
-#      remove the env var afterward.
+#      hand. The flag goes on `backend`, because that is the service that
+#      owns the data and therefore the decision to destroy it. In production
+#      it's off by default; students enable it in Coolify's Environment
+#      Variables UI when they need to reset, then remove the env var.
 #
-# `smoke-test.sh` also exports SERVICE_FQDN_HELLO before running compose
-# so the interpolation of ${SERVICE_FQDN_HELLO} in the main file doesn't
+# `smoke-test.sh` also exports SERVICE_FQDN_FRONTEND before running compose
+# so the interpolation of ${SERVICE_FQDN_FRONTEND} in the main file doesn't
 # warn.
 
 services:
-  hello:
+  frontend:
     ports:
       - "8000:8000"
+
+  backend:
     environment:
       - ALLOW_ADMIN_RESET=true

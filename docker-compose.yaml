@@ -1,6 +1,6 @@
 services:
-  hello:
-    build: ./hello
+  frontend:
+    build: ./frontend
     # `expose:` documents the container's internal port WITHOUT binding it to
     # a host port. Do NOT use `ports:` here — the shared cluster server only
     # lets ONE container own each host port at a time, and Coolify's Traefik
@@ -13,30 +13,34 @@ services:
     expose:
       - "8000"
     environment:
-      # Coolify magic: REFERENCING ${SERVICE_FQDN_HELLO} anywhere in this
+      # Coolify magic: REFERENCING ${SERVICE_FQDN_FRONTEND} anywhere in this
       # file tells Coolify to (1) populate that variable with the
       # Application's configured domain, (2) attach this service to the
       # `coolify` Docker network, and (3) auto-generate Traefik labels
       # routing the domain to this service. The magic is triggered by
       # INTERPOLATION, not by declaring the var — a bare
-      # `- SERVICE_FQDN_HELLO_8000` crashes Coolify's parser with
+      # `- SERVICE_FQDN_FRONTEND_8000` crashes Coolify's parser with
       # "no service selected".
       #
       # The variable name follows the service name: SERVICE_FQDN_<UPPER>.
-      # Since this service is `hello`, the var is SERVICE_FQDN_HELLO. If
-      # you rename the service, rename the var to match.
+      # Since this service is `frontend`, the var is SERVICE_FQDN_FRONTEND.
+      # If you rename the service, rename the var to match.
       #
-      # APP_URL is arbitrary — Coolify only cares that ${SERVICE_FQDN_HELLO}
+      # APP_URL is arbitrary — Coolify only cares that ${SERVICE_FQDN_FRONTEND}
       # appears. Handing it to APP_URL lets the container read its own
       # public URL for building absolute links / callbacks.
-      - APP_URL=${SERVICE_FQDN_HELLO}
-      # Postgres connection string. Uses the compose service DNS name `db`
-      # as the hostname (see the `db:` service below).
-      - DATABASE_URL=postgresql://appuser:apppass@db:5432/appdb
+      - APP_URL=${SERVICE_FQDN_FRONTEND}
+      # Address of the internal `backend` service. `backend` is the compose
+      # service name and Docker's DNS resolves it on the internal network.
+      # Note what is NOT here: no DATABASE_URL, no Postgres password. This
+      # service is the one exposed to the internet, and it cannot reach the
+      # database at all — only `backend` can.
+      - BACKEND_URL=http://backend:8001
     depends_on:
-      time:
-        condition: service_healthy
-      db:
+      # Only on `backend`. The database is `backend`'s dependency, not ours,
+      # and declaring it here would claim a relationship that no longer
+      # exists in the code.
+      backend:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
@@ -52,20 +56,32 @@ services:
       retries: 3
     restart: unless-stopped
 
-  # Second service — a stand-in for the kind of sidecar you'd add for real
-  # work (background worker, local ML model server, etc.). This one serves
-  # the current UTC time; `hello` reaches it at http://time:8001 over the
-  # Compose network. INTERNAL ONLY — no ${SERVICE_FQDN_TIME}, so Coolify
-  # won't route Traefik to it.
-  time:
-    build: ./time
+  # Second service — your application logic, and the ONLY service that
+  # talks to the database. `frontend` reaches it at http://backend:8001
+  # over the Compose network and asks it for data; it has no database
+  # access of its own.
+  #
+  # INTERNAL ONLY — no ${SERVICE_FQDN_BACKEND}, so Coolify won't route
+  # Traefik to it and nothing outside the stack can reach it. That is what
+  # makes it a safe place to hold the credentials below.
+  backend:
+    build: ./backend
     expose:
       - "8001"
+    environment:
+      # Postgres connection string. Uses the compose service DNS name `db`
+      # as the hostname (see the `db:` service below).
+      - DATABASE_URL=postgresql://appuser:apppass@db:5432/appdb
+    depends_on:
+      db:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health').read()"]
-      # `hello` waits on this via depends_on: service_healthy, so it needs to go
-      # healthy fast — hence start_interval — but nothing needs a reading every
-      # 30s for the rest of the container's life.
+      # `frontend` waits on this via depends_on: service_healthy, so it needs to
+      # go healthy fast — hence start_interval — but nothing needs a reading
+      # every 30s for the rest of the container's life. Note the check hits
+      # /health, which does NOT touch the database: a slow Postgres start
+      # should not read as a broken backend.
       start_period: 20s
       start_interval: 2s
       interval: 5m
@@ -74,13 +90,13 @@ services:
     restart: unless-stopped
 
   # Third service — a real Postgres database with persistent storage.
-  # `hello` reaches it at postgresql://...@db:5432/... over the Compose
-  # network. INTERNAL ONLY.
+  # `backend` reaches it at postgresql://...@db:5432/... over the Compose
+  # network. INTERNAL ONLY — and `frontend` cannot reach it at all.
   #
   # Stock postgres:16-alpine image, no customization. The database
   # container is a generic storage service — it doesn't know anything
   # about the app's schema. The app owns the schema and materializes it
-  # into this database via its startup lifespan hook (see hello/main.py).
+  # into this database via its startup lifespan hook (see backend/main.py).
   # Same pattern as Django, Rails, and modern FastAPI + Alembic apps.
   #
   # db-data (bottom of file) is the named volume that makes data survive
@@ -101,7 +117,7 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U appuser -d appdb"]
       # This was the noisiest of the three: pg_isready every 5 seconds, forever.
-      # Postgres still has to be confirmed ready quickly, because `hello` blocks
+      # Postgres still has to be confirmed ready quickly, because `backend` blocks
       # on it via depends_on — start_interval does that without the steady-state
       # cost. 5s -> 5m is roughly 17,000 fewer probes per container per day.
       start_period: 30s

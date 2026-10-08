@@ -15,22 +15,26 @@ hello-world-app/
 ├── .gitignore                    # Python/Docker noise + terraform secrets and state
 ├── .github/workflows/ci.yml      # 3-job pipeline: test → deploy-staging → deploy-prod
 │
-├── hello/                        # PUBLIC service — Traefik-routed
+├── frontend/                     # PUBLIC service — Traefik-routed
 │   ├── main.py                   #   FastAPI wiring + endpoints (thin)
 │   ├── greetings.py              #   content + logic (split out from main.py on purpose)
-│   ├── notes_dao.py              #   NotesDAO — all SQL and migration runner live here
-│   ├── migrations/               #   *.sql files — applied on app startup in filename order
+│   ├── backend_client.py         #   BackendClient — every call to the backend goes here
+│   ├── requirements.txt          #   no database driver — see backend/
+│   ├── Dockerfile
+│   ├── .dockerignore
+│   ├── conftest.py               #   makes frontend/ the pytest rootdir
+│   └── tests/test_api.py         #   16 tests; mocked at the client boundary
+│
+├── backend/                      # INTERNAL service — owns the database
+│   ├── main.py                   #   FastAPI wiring + endpoints (thin)
+│   ├── notes_dao.py              #   NotesDAO — the only SQL in the repo
+│   ├── migrations/               #   *.sql files — applied on startup in filename order
 │   │   └── 001_create_notes.sql  #   initial schema; add 002_*.sql etc. as you evolve it
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── .dockerignore
-│   ├── conftest.py               #   makes hello/ the pytest rootdir
-│   └── tests/test_api.py         #   twelve tests; DAO-boundary + sidecar mocks
-│
-├── time/                         # INTERNAL sidecar — no external routing
-│   ├── main.py                   #   FastAPI returning UTC time on /now
-│   ├── requirements.txt
-│   └── Dockerfile
+│   ├── conftest.py               #   makes backend/ the pytest rootdir
+│   └── tests/test_api.py         #   11 tests; mocked at the DAO boundary
 │
 └── terraform/                    # NOT a service — provisions the Coolify side
     ├── main.tf                   #   the resources: project, 2 envs, 2 apps, 3 GitHub secrets
@@ -42,7 +46,11 @@ hello-world-app/
     └── README.md                 #   the deeper walkthrough, incl. why domains stay manual
 ```
 
-`hello/` is the only public service. `time/` is a lightweight sidecar demo. There's no `db/` subdirectory — the Postgres sidecar in `docker-compose.yaml` uses the stock `postgres:16-alpine` image directly. Postgres is a generic storage service; the app owns its schema and materializes it at startup via a FastAPI lifespan hook in `hello/main.py`. That's the modern Django/Rails/Alembic convention: db container = dumb storage, app codebase = schema source of truth. Add more sidecars the same way: their own subdirectory (if they need one) or just an `image:` line in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
+`frontend/` is the only public service. `backend/` holds your application logic
+and is the only service that touches the database — it is internal-only,
+reachable just from `frontend`. Note the symmetry: each service has exactly one
+file that owns its outward boundary (`backend_client.py`, `notes_dao.py`) and a
+`main.py` that stays thin because of it. There's no `db/` subdirectory — the Postgres sidecar in `docker-compose.yaml` uses the stock `postgres:16-alpine` image directly. Postgres is a generic storage service; the backend owns the schema and materializes it at startup via a FastAPI lifespan hook in `backend/main.py`. That's the modern Django/Rails/Alembic convention: db container = dumb storage, app codebase = schema source of truth. Add more services the same way: their own subdirectory (if they need one) or just an `image:` line in compose, `expose:` for the port, no `${SERVICE_FQDN_*}` so Coolify keeps them internal-only.
 
 `terraform/` is the odd one out — it isn't a service and nothing in it ships inside a container. It describes the Coolify and GitHub resources your app needs *around* it: the Project, the two Environments, the two Applications, and the three Actions secrets. You can ignore it entirely and click through the Coolify UI instead; see [Provisioning with Terraform](#provisioning-with-terraform) below.
 
@@ -50,47 +58,72 @@ hello-world-app/
 
 ```
 Browser / curl
-      │  http://<domain>                          (via Coolify Traefik in prod, or host:8000 locally)
+      │  http://<domain>          (Coolify Traefik in prod, host:8000 locally)
       ▼
-┌────────────────────┐      http://time:8001/now      ┌────────────────────┐
-│   hello (FastAPI)  │ ────────────────────────────▶  │   time (FastAPI)   │
-│   port 8000        │      Docker DNS by service     │   port 8001        │
-│   PUBLIC           │      name — internal only      │   INTERNAL         │
-└──────────┬─────────┘                                └────────────────────┘
+┌────────────────────┐
+│ frontend (FastAPI) │  PUBLIC — port 8000
+│                    │  serves pages and the HTTP API
+│ backend_client.py  │  no database driver, no SQL, no credentials
+└──────────┬─────────┘
+           │  http://backend:8001     Docker DNS by service name
+           ▼
+┌────────────────────┐
+│ backend  (FastAPI) │  INTERNAL — port 8001
+│                    │  application logic; owns the data
+│ notes_dao.py       │  the only file with SQL in it
+└──────────┬─────────┘
            │  postgres://appuser:apppass@db:5432/appdb
            ▼
 ┌────────────────────┐
-│   db (postgres)    │      persistent volume: db-data
-│   port 5432        │      → survives docker compose down
-│   INTERNAL         │      → wiped only by `docker compose down -v`
-└────────────────────┘
+│   db (postgres)    │  INTERNAL — port 5432
+│                    │  persistent volume: db-data
+│                    │  → survives `docker compose down`
+└────────────────────┘  → wiped only by `docker compose down -v`
 ```
 
-Only `hello` gets a public URL. `time` and `db` are reachable only from other services on the Compose network. Coolify isolates volumes per-Application, so staging and prod each get their own `db-data` — they never share data.
+**One direction, one owner per layer.** A request for data goes
+frontend → backend → db and the answer comes back the same way. The
+frontend never talks to Postgres: it has no driver installed, no password,
+and no SQL anywhere in it. That is deliberate, and it is the shape your own
+project should take.
+
+Why it matters beyond tidiness:
+
+- **The service exposed to the internet holds no credentials.** A bug in
+  `frontend` cannot leak or corrupt data it has no way to reach.
+- **One owner for the schema.** Every read and write goes through one DAO in
+  one service. Two services both holding a `DATABASE_URL` is how schemas drift.
+- **Layers change independently.** Swap Postgres for something else and only
+  `backend` changes. Rebuild the UI and only `frontend` changes.
+
+Only `frontend` gets a public URL. `backend` and `db` are reachable only from other services on the Compose network. Coolify isolates volumes per-Application, so staging and prod each get their own `db-data` — they never share data.
 
 ### The three services
 
 | Service | Built from | Port | Public? | What it is |
 |---|---|---|---|---|
-| `hello` | `./hello` (FastAPI) | 8000 | **yes** | The app. Serves every endpoint below, calls `time`, reads and writes `db`. |
-| `time` | `./time` (FastAPI) | 8001 | no | A sidecar standing in for the kind of helper service you'd add for real work — a background worker, a local model server. Returns the current UTC time. |
+| `frontend` | `./frontend` (FastAPI) | 8000 | **yes** | The service users reach. Serves every endpoint below. For anything involving data it calls `backend` through `backend_client.py`. No database access of its own. |
+| `backend` | `./backend` (FastAPI) | 8001 | no | Application logic and the **only** service that touches Postgres. All SQL lives in its `notes_dao.py`. Also serves `/now`, standing in for real backend work. |
 | `db` | `postgres:16-alpine` | 5432 | no | Postgres. Data lives on the named volume `db-data`. |
 
-**How they find each other.** Compose gives every service a DNS name matching its key, so `hello` reaches the sidecar at `http://time:8001` and the database at `db:5432`. No IP addresses, no port juggling — that's why `time` and `db` declare `expose:` rather than `ports:`, making them reachable *only* from inside the Compose network.
+**How they find each other.** Compose gives every service a DNS name matching its key, so `frontend` reaches the backend at `http://backend:8001`, and `backend` reaches the database at `db:5432`. No IP addresses, no port juggling — that's why `backend` and `db` declare `expose:` rather than `ports:`, making them reachable *only* from inside the Compose network.
 
-**Why `hello` uses `expose:` too.** The cluster server is shared, so binding a host port would collide with every other student. Coolify's Traefik routes to the container directly. Locally, `docker-compose.override.yml` adds the `ports:` mapping that puts it on `localhost:8000`.
+**Why `frontend` uses `expose:` too.** The cluster server is shared, so binding a host port would collide with every other student. Coolify's Traefik routes to the container directly. Locally, `docker-compose.override.yml` adds the `ports:` mapping that puts it on `localhost:8000`.
 
-**How `hello` gets its public URL.** Referencing `${SERVICE_FQDN_HELLO}` in the compose file is what tells Coolify to generate a domain and wire up Traefik. Don't declare that variable — just reference it. The name follows the service (`hello` → `SERVICE_FQDN_HELLO`).
+**How `frontend` gets its public URL.** Referencing `${SERVICE_FQDN_FRONTEND}` in the compose file is what tells Coolify to generate a domain and wire up Traefik. Don't declare that variable — just reference it. The name follows the service (`frontend` → `SERVICE_FQDN_FRONTEND`).
 
-**Startup order.** `hello` declares `depends_on` with `condition: service_healthy` for both `time` and `db`, so it won't start until Postgres is accepting connections and the sidecar answers. That's what makes a cold `docker compose up` reliable instead of a race.
+**Startup order.** The chain is declared the same way it runs: `backend` waits on `db`, and `frontend` waits on `backend`, both with `condition: service_healthy`. A cold `docker compose up` therefore starts Postgres, waits for it to accept connections, starts the backend, waits for it to answer, then starts the frontend — reliable instead of a race. Note `frontend` does *not* declare `depends_on: db`; the database is the backend's dependency, not its own.
+
+**Liveness vs readiness.** Both services' health checks hit `/health`, which deliberately does **not** touch anything downstream — `frontend`'s `/health` does not call the backend, and `backend`'s `/health` does not query Postgres. Coolify gates deploys on these, and a check that failed whenever a dependency was slow would roll back good deploys. To ask "is the whole stack working", use `GET /ready` on the frontend, which is allowed to fail.
 
 **Environment variables** (all set in `docker-compose.yaml`):
 
 | Variable | Service | Purpose |
 |---|---|---|
-| `DATABASE_URL` | `hello` | `postgresql://appuser:apppass@db:5432/appdb` |
-| `APP_URL` | `hello` | Set to `${SERVICE_FQDN_HELLO}` — the reference that triggers Coolify's routing |
-| `ALLOW_ADMIN_RESET` | `hello` | Gates `POST /admin/reset`. Set only in `docker-compose.override.yml`, so the destructive endpoint is local-only by default |
+| `BACKEND_URL` | `frontend` | `http://backend:8001` — where the frontend sends every data request |
+| `APP_URL` | `frontend` | Set to `${SERVICE_FQDN_FRONTEND}` — the reference that triggers Coolify's routing |
+| `DATABASE_URL` | `backend` | `postgresql://appuser:apppass@db:5432/appdb`. **Only** the backend gets this |
+| `ALLOW_ADMIN_RESET` | `backend` | Gates `POST /admin/reset`. On the backend because the service that owns the data owns the decision to destroy it. Set only in `docker-compose.override.yml`, so the destructive endpoint is local-only by default |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `db` | `appuser` / `apppass` / `appdb` |
 
 ## Endpoints
@@ -128,18 +161,28 @@ curl -s $BASE/health
 # {"ok":true,"version":"0.1.1"}
 ```
 
-**This endpoint gates your deploys.** Coolify polls it after starting a new container: 200 and the new version takes over, non-200 and the old container keeps serving. Bump `APP_VERSION` in `hello/greetings.py` and you can watch a deploy land by curling this.
+**This endpoint gates your deploys.** Coolify polls it after starting a new container: 200 and the new version takes over, non-200 and the old container keeps serving. Bump `APP_VERSION` in `frontend/greetings.py` and you can watch a deploy land by curling this.
 
-### `GET /time` — proxied from the sidecar
+### `GET /ready` — the whole stack, not just this process
+
+```bash
+curl -s $BASE/ready
+# {"ok":true,"frontend":"0.1.1","backend":"ok"}
+# {"detail":"backend not ready: backend unreachable: ..."}   -> HTTP 503
+```
+
+Unlike `/health`, this one calls the backend and is *allowed* to fail. Use it to answer "is the stack working", and `/health` for "is this process alive". Keeping them separate is why a slow backend start cannot roll back a good frontend deploy.
+
+### `GET /time` — proxied from the backend
 
 ```bash
 curl -s $BASE/time
-# {"from_time_service":{"utc":"2026-09-23T22:18:04.336421+00:00"}}
+# {"from_backend":{"utc":"2026-09-23T22:18:04.336421+00:00"}}
 ```
 
-`hello` calls `http://time:8001/now` over the Compose network. If this works, service-to-service networking works.
+`frontend` calls `http://backend:8001/now` over the Compose network. If this works, service-to-service networking works.
 
-### `GET /notes` — read the database
+### `GET /notes` — read the database, through the backend
 
 ```bash
 curl -s $BASE/notes
@@ -147,7 +190,7 @@ curl -s $BASE/notes
 # [{"id":1,"body":"first note","created_at":"2026-09-23T22:18:04.470242+00:00"}]
 ```
 
-### `POST /notes` — write to the database
+### `POST /notes` — write to the database, through the backend
 
 ```bash
 curl -s -X POST $BASE/notes \
@@ -166,6 +209,8 @@ curl -s -X POST $BASE/notes -H 'Content-Type: application/json' -d '{}'
 
 Rows survive `docker compose down` and every redeploy, because they live on the `db-data` volume — that is the point of this endpoint existing.
 
+**Follow the call path**, because it is the pattern to copy. The route in `frontend/main.py` calls `backend.create_note(...)` and returns the result — it names no URL and no status code. `frontend/backend_client.py` turns that into `POST http://backend:8001/notes`. The route in `backend/main.py` calls `notes_dao.insert(...)` — no cursor, no table name. `backend/notes_dao.py` turns that into the actual `INSERT`. Each layer talks to the next in its own vocabulary, and each boundary is one file you can mock in a test or replace wholesale.
+
 ### `POST /admin/reset` — drop and recreate the table
 
 ```bash
@@ -174,7 +219,7 @@ curl -s -X POST $BASE/admin/reset
 # {"detail":"admin reset disabled; set ALLOW_ADMIN_RESET=true to enable"}   -> HTTP 403
 ```
 
-**Destructive — it drops the `notes` table and every row in it.** Gated behind `ALLOW_ADMIN_RESET=true`, which only `docker-compose.override.yml` sets, so it is local-only unless you deliberately add the variable in Coolify. Useful for resetting state while working on migrations; not something to leave enabled on a deployed app.
+**Destructive — it drops the `notes` table and every row in it.** Gated behind `ALLOW_ADMIN_RESET=true` **on the backend**, which only `docker-compose.override.yml` sets, so it is local-only unless you deliberately add the variable in Coolify. The gate lives in the backend because the service that owns the data owns the decision to destroy it; the frontend just passes the resulting 403 through. Useful for resetting state while working on migrations; not something to leave enabled on a deployed app.
 
 ## Smoke test
 
@@ -183,22 +228,32 @@ curl -s -X POST $BASE/admin/reset
 ./smoke-test.sh http://your-app.ml-capstone.cs.byu.edu      # remote: tests a deployed instance
 ```
 
-Or run without Docker:
+Or run a single service without Docker. The frontend needs the backend running
+to answer anything data-related, so this is mostly useful for the greeting
+routes:
 
 ```bash
-cd hello
-pip install -r requirements.txt
-uvicorn main:app --reload
+cd frontend
+python -m pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
 ```
 
-Then `curl http://127.0.0.1:8000/` and `curl http://127.0.0.1:8000/health`.
+Then `curl http://127.0.0.1:8000/` and `curl http://127.0.0.1:8000/health`. For the full chain use `docker compose up` — getting three services and their startup order right by hand is exactly the work compose is doing for you.
 
 ## Unit tests
 
+Two suites, one per service. Neither needs Docker or a database.
+
 ```bash
-pip install fastapi 'uvicorn[standard]' pydantic httpx pytest
-pytest tests/ -v
+python -m pip install fastapi 'uvicorn[standard]' pydantic httpx 'psycopg[binary]' pytest
+
+cd frontend && pytest tests/ -v    # 16 tests — mocks at the BackendClient boundary
+cd ../backend && pytest tests/ -v  # 11 tests — mocks at the NotesDAO boundary
 ```
+
+That split is the payoff of the two boundary objects. The frontend tests never construct an HTTP response; the backend tests never construct a database cursor. Each suite describes what its routes do with whatever the layer below returns, which is why they stay short and stop breaking for unrelated reasons.
+
+CI runs both — see `.github/workflows/ci.yml`. A failure in either blocks the deploy.
 
 ## Deploy
 
@@ -213,7 +268,7 @@ This app is deploy-ready for the ml-capstone cluster. Steps:
 >
 > The hostname comes from your **repository name**, not your team name.
 
-Bump `APP_VERSION` in `greetings.py` on each meaningful change so you can eyeball `/health` after a deploy and confirm it's the new build.
+Bump `APP_VERSION` in `frontend/greetings.py` on each meaningful change so you can eyeball `/health` after a deploy and confirm it's the new build.
 
 ## Provisioning with Terraform
 
@@ -260,7 +315,7 @@ The outputs give you both URLs and the Application UUIDs.
 
 ### The one manual step
 
-**Terraform cannot set your domains.** Coolify's API won't accept per-service domains on a Docker Compose application, so for each of the two Applications: **Access → gear icon on "1 configured domain"** (or the **Domains** tab) → under service `hello`, set `http://<your-repo>-staging.ml-capstone.cs.byu.edu` (or the prod equivalent) → **Save**. Delete the auto-generated `sslip.io` placeholder and the `www.` variant.
+**Terraform cannot set your domains.** Coolify's API won't accept per-service domains on a Docker Compose application, so for each of the two Applications: **Access → gear icon on "1 configured domain"** (or the **Domains** tab) → under service `frontend`, set `http://<your-repo>-staging.ml-capstone.cs.byu.edu` (or the prod equivalent) → **Save**. Delete the auto-generated `sslip.io` placeholder and the `www.` variant.
 
 Do this **before** your first deploy. Traefik bakes its routing labels into a container when it starts, so a domain added afterwards leaves your URL returning `404 page not found` until you hit **Redeploy**.
 

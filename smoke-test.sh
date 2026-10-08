@@ -5,7 +5,7 @@
 #
 #   Local (no argument):
 #     ./smoke-test.sh
-#     -> builds + starts the full compose stack (hello + time + db),
+#     -> builds + starts the full compose stack (frontend + backend + db),
 #        waits for /health on localhost:8000, curls the endpoints,
 #        leaves everything running so you can keep poking at it.
 #
@@ -15,9 +15,12 @@
 #        the given URL. Useful for smoke-testing a Coolify deploy
 #        (staging or prod) from your laptop after a push.
 #
-# Both modes hit / /health /time /notes (GET + POST). The POST
-# inserts a test row into the database. Clean up afterwards with
-# `curl -X POST <base>/admin/reset` (needs ALLOW_ADMIN_RESET=true).
+# Both modes hit / /health /ready /time /notes (GET + POST), all against
+# the frontend — it is the only service with a public URL. Every data
+# endpoint travels frontend -> backend -> db, so a passing /notes round
+# trip proves all three services and both hops. Clean up afterwards with
+# `curl -X POST <base>/admin/reset` (needs ALLOW_ADMIN_RESET=true on the
+# backend).
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -32,11 +35,11 @@ else
 fi
 
 if [ "$MODE" = "local" ]; then
-    # Stub SERVICE_FQDN_HELLO for the compose interpolation in
+    # Stub SERVICE_FQDN_FRONTEND for the compose interpolation in
     # docker-compose.yaml. In production Coolify populates this.
-    export SERVICE_FQDN_HELLO="$BASE_URL"
+    export SERVICE_FQDN_FRONTEND="$BASE_URL"
 
-    echo "=== local mode: building + starting hello, time, db (docker compose) ==="
+    echo "=== local mode: building + starting frontend, backend, db (docker compose) ==="
     docker compose down --remove-orphans >/dev/null 2>&1 || true
     docker compose up -d --build
 else
@@ -59,13 +62,16 @@ echo
 echo "=== GET / ==="
 curl -sS "$BASE_URL/"
 echo
-echo "=== GET /health ==="
+echo "=== GET /health (frontend liveness only — does not call the backend) ==="
 curl -sS "$BASE_URL/health"
 echo
-echo "=== GET /time (proves hello -> time sidecar comms) ==="
+echo "=== GET /ready (frontend AND the backend behind it) ==="
+curl -sS "$BASE_URL/ready"
+echo
+echo "=== GET /time (proves frontend -> backend comms) ==="
 curl -sS "$BASE_URL/time"
 echo
-echo "=== POST /notes (proves hello -> db round-trip; data now persists) ==="
+echo "=== POST /notes (proves frontend -> backend -> db; data now persists) ==="
 curl -sS -X POST "$BASE_URL/notes" \
     -H 'Content-Type: application/json' \
     -d '{"body":"smoke-test note from smoke-test.sh"}'
@@ -77,9 +83,12 @@ echo
 
 if [ "$MODE" = "local" ]; then
     echo "All three services are running:"
-    echo "  hello → http://localhost:8000 (public API — Traefik-routed in prod)"
-    echo "  time  → internal only         (reachable from hello at http://time:8001)"
-    echo "  db    → internal Postgres     (reachable from hello at postgres://...@db:5432)"
+    echo "  frontend → http://localhost:8000 (public — Traefik-routed in prod)"
+    echo "  backend  → internal only         (frontend calls it at http://backend:8001)"
+    echo "  db       → internal Postgres     (only backend reaches it, at db:5432)"
+    echo
+    echo "The frontend has no database driver installed. Every note you just"
+    echo "posted went frontend -> backend -> db and came back the same way."
     echo
     echo "Proof of persistence: POST another /notes row, run 'docker compose down',"
     echo "then 'docker compose up -d' — GET /notes shows every row you inserted."
@@ -90,7 +99,8 @@ if [ "$MODE" = "local" ]; then
 else
     echo "Remote smoke test complete: $BASE_URL"
     echo
-    echo "The POST above inserted a test row into the deployed database."
+    echo "The POST above inserted a test row into the deployed database,"
+    echo "via the backend — the frontend cannot reach Postgres directly."
     echo "Clean up with:  curl -X POST $BASE_URL/admin/reset"
-    echo "(needs ALLOW_ADMIN_RESET=true in the Coolify Application's env vars)"
+    echo "(needs ALLOW_ADMIN_RESET=true on the BACKEND service in Coolify)"
 fi

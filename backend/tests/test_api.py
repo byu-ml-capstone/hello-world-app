@@ -1,5 +1,15 @@
-import json
-from unittest.mock import MagicMock, patch
+"""Tests for the internal data service.
+
+Everything involving Postgres is mocked at the NotesDAO boundary. That is the
+payoff of extracting the DAO: a test says "when the DAO returns these rows,
+the route returns them" without mocking psycopg's connect / cursor /
+context-manager stack, and nothing here needs a database running.
+
+Compare frontend/tests/test_api.py, which mocks at the BackendClient boundary
+for exactly the same reason one layer up.
+"""
+
+from unittest.mock import patch
 
 import psycopg
 from fastapi.testclient import TestClient
@@ -11,34 +21,14 @@ client = TestClient(app)
 
 
 # ---------------------------------------------------------------------------
-# Basic routes — no external dependencies
+# Basic routes — no database involved
 # ---------------------------------------------------------------------------
 
 
-def test_hello_default():
+def test_root_identifies_the_service():
     r = client.get("/")
     assert r.status_code == 200
-    assert r.json() == {"hello": "Hello, world"}
-
-
-def test_hello_spanish():
-    r = client.get("/", params={"lang": "es"})
-    assert r.status_code == 200
-    assert r.json() == {"hello": "Hola, mundo"}
-
-
-def test_hello_unknown_lang_falls_back_to_default():
-    r = client.get("/", params={"lang": "xx"})
-    assert r.status_code == 200
-    assert r.json() == {"hello": "Hello, world"}
-
-
-def test_languages_lists_all_supported():
-    r = client.get("/languages")
-    assert r.status_code == 200
-    body = r.json()
-    assert "en" in body["supported"]
-    assert "es" in body["supported"]
+    assert r.json()["service"] == "backend"
 
 
 def test_health_ok():
@@ -49,32 +39,27 @@ def test_health_ok():
     assert "version" in body
 
 
-# ---------------------------------------------------------------------------
-# /time — mocks the network call to the sidecar
-# ---------------------------------------------------------------------------
+def test_health_does_not_touch_the_database():
+    """Liveness must not depend on Postgres.
 
-
-def test_time_endpoint_wraps_response_from_time_sidecar():
-    # The /time endpoint calls http://time:8001/now, which only resolves
-    # when docker compose is running. Mock the underlying urlopen so
-    # tests don't need the sidecar container up.
-    fake_body = json.dumps({"utc": "2026-08-20T12:34:56+00:00"}).encode()
-    fake_response = MagicMock()
-    fake_response.read.return_value = fake_body
-    fake_response.__enter__.return_value = fake_response
-    fake_response.__exit__.return_value = False
-
-    with patch("main.urllib.request.urlopen", return_value=fake_response):
-        r = client.get("/time")
-
+    `frontend` waits on this via depends_on: service_healthy. If it queried
+    the database, a slow Postgres start would block the whole stack.
+    """
+    with patch.object(main.notes_dao, "list_all") as m:
+        r = client.get("/health")
     assert r.status_code == 200
-    assert r.json() == {"from_time_service": {"utc": "2026-08-20T12:34:56+00:00"}}
+    m.assert_not_called()
+
+
+def test_now_returns_an_iso_timestamp():
+    r = client.get("/now")
+    assert r.status_code == 200
+    assert "utc" in r.json()
+    assert "T" in r.json()["utc"]
 
 
 # ---------------------------------------------------------------------------
-# /notes — mocks at the DAO boundary. This is the payoff of extracting
-# NotesDAO: tests describe what the ROUTE does with DAO results, without
-# entangling psycopg's cursor / context-manager mocking noise.
+# /notes — mocked at the DAO boundary
 # ---------------------------------------------------------------------------
 
 
@@ -102,6 +87,12 @@ def test_notes_create_returns_dao_output():
     m.assert_called_once_with("hello persistence")
 
 
+def test_notes_create_rejects_a_missing_body():
+    """Pydantic validates the request before any route code runs."""
+    r = client.post("/notes", json={})
+    assert r.status_code == 422
+
+
 def test_notes_list_returns_503_when_db_unreachable():
     with patch.object(
         main.notes_dao, "list_all", side_effect=psycopg.OperationalError("boom")
@@ -111,8 +102,17 @@ def test_notes_list_returns_503_when_db_unreachable():
     assert "db unreachable" in r.json()["detail"]
 
 
+def test_notes_create_returns_503_when_db_unreachable():
+    with patch.object(
+        main.notes_dao, "insert", side_effect=psycopg.OperationalError("boom")
+    ):
+        r = client.post("/notes", json={"body": "x"})
+    assert r.status_code == 503
+
+
 # ---------------------------------------------------------------------------
-# /admin/reset — env-gated destructive endpoint
+# /admin/reset — env-gated destructive endpoint. The gate lives HERE, in the
+# service that owns the data, not in the one that takes the request.
 # ---------------------------------------------------------------------------
 
 
@@ -131,11 +131,3 @@ def test_admin_reset_calls_dao_when_enabled():
     assert r.status_code == 200
     assert r.json()["ok"] is True
     m.assert_called_once_with()
-
-
-def test_admin_reset_returns_503_when_db_unreachable():
-    with patch.object(main, "ADMIN_RESET_ENABLED", True), patch.object(
-        main.notes_dao, "reset", side_effect=psycopg.OperationalError("boom")
-    ):
-        r = client.post("/admin/reset")
-    assert r.status_code == 503

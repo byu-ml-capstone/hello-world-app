@@ -5,13 +5,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy every top-level Python module — main.py imports from greetings.py,
-# and as students add more modules the glob picks them up automatically.
+# Copy every top-level Python module — main.py imports from greetings.py and
+# backend_client.py, and as students add more modules the glob picks them up
+# automatically. No migrations/ here: the schema belongs to `backend`, which
+# is the only service that touches the database.
 COPY *.py ./
-
-# Schema migration SQL files. Applied by notes_dao.apply_migrations() on
-# app startup — see the lifespan hook in main.py.
-COPY migrations/ ./migrations/
 
 EXPOSE 8000
 

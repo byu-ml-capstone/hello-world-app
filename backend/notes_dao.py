@@ -1,7 +1,10 @@
 """Data Access Object for the `notes` table.
 
 Encapsulates every SQL statement and Postgres detail so main.py can talk
-about notes in terms of Python dicts instead of cursors and tuples.
+about notes in terms of Python dicts instead of cursors and tuples. This is
+the only file in the whole repository that contains SQL, and this service is
+the only one with a database driver installed.
+
 Pulling this out has three payoffs:
 
   1. Routes stay thin. `main.py` reads like an HTTP contract, not a SQL
@@ -30,7 +33,7 @@ import psycopg
 
 log = logging.getLogger("uvicorn.error")
 
-# Migrations live in hello/migrations/*.sql, sorted lexicographically.
+# Migrations live in backend/migrations/*.sql, sorted lexicographically.
 # Convention: `NNN_description.sql` with a zero-padded 3-digit prefix so
 # alphabetical sort == intended order (001, 002, ..., 099, 100 all work).
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
