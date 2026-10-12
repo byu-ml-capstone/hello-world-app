@@ -19,8 +19,14 @@
 # the frontend — it is the only service with a public URL. Every data
 # endpoint travels frontend -> backend -> db, so a passing /notes round
 # trip proves all three services and both hops. Clean up afterwards with
-# `curl -X POST <base>/admin/reset` (needs ALLOW_ADMIN_RESET=true on the
+# `curl -L -X POST <base>/admin/reset` (needs ALLOW_ADMIN_RESET=true on the
 # backend).
+#
+# Every curl below passes -L. Once an app's Coolify domain is https, Traefik
+# redirects the http URL, and without -L a GET prints the literal word "Found"
+# while a POST stops at 307 and never reaches the app. Both look like the app
+# is broken. -L follows the redirect, and because Traefik answers 307 rather
+# than 302, the POST method survives it.
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -50,7 +56,7 @@ fi
 # in remote mode this catches "did the deploy actually finish yet".
 echo -n "waiting for /health "
 for _ in $(seq 1 60); do
-    if curl -sSf "$BASE_URL/health" >/dev/null 2>&1; then
+    if curl -fsSL "$BASE_URL/health" >/dev/null 2>&1; then
         echo " ready"
         break
     fi
@@ -60,24 +66,24 @@ done
 
 echo
 echo "=== GET / ==="
-curl -sS "$BASE_URL/"
+curl -sSL "$BASE_URL/"
 echo
 echo "=== GET /health (frontend liveness only — does not call the backend) ==="
-curl -sS "$BASE_URL/health"
+curl -sSL "$BASE_URL/health"
 echo
 echo "=== GET /ready (frontend AND the backend behind it) ==="
-curl -sS "$BASE_URL/ready"
+curl -sSL "$BASE_URL/ready"
 echo
 echo "=== GET /time (proves frontend -> backend comms) ==="
-curl -sS "$BASE_URL/time"
+curl -sSL "$BASE_URL/time"
 echo
 echo "=== POST /notes (proves frontend -> backend -> db; data now persists) ==="
-curl -sS -X POST "$BASE_URL/notes" \
+curl -sSL -X POST "$BASE_URL/notes" \
     -H 'Content-Type: application/json' \
     -d '{"body":"smoke-test note from smoke-test.sh"}'
 echo
 echo "=== GET /notes (reads back everything in the notes table) ==="
-curl -sS "$BASE_URL/notes"
+curl -sSL "$BASE_URL/notes"
 echo
 echo
 
@@ -101,6 +107,6 @@ else
     echo
     echo "The POST above inserted a test row into the deployed database,"
     echo "via the backend — the frontend cannot reach Postgres directly."
-    echo "Clean up with:  curl -X POST $BASE_URL/admin/reset"
+    echo "Clean up with:  curl -L -X POST $BASE_URL/admin/reset"
     echo "(needs ALLOW_ADMIN_RESET=true on the BACKEND service in Coolify)"
 fi
