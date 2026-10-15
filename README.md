@@ -132,7 +132,7 @@ Every example below is runnable. Locally the base URL is `http://localhost:8000`
 
 ```bash
 BASE=http://localhost:8000
-# BASE=http://<your-repo>-staging.ml-capstone.cs.byu.edu    # deployed staging (VPN)
+# BASE=https://<your-repo>-staging.ml-capstone.cs.byu.edu    # deployed staging (VPN)
 ```
 
 ### `GET /` — greeting
@@ -225,7 +225,7 @@ curl -s -X POST $BASE/admin/reset
 
 ```bash
 ./smoke-test.sh                                             # local: builds + starts + tests
-./smoke-test.sh http://your-app.ml-capstone.cs.byu.edu      # remote: tests a deployed instance
+./smoke-test.sh https://your-app.ml-capstone.cs.byu.edu      # remote: tests a deployed instance
 ```
 
 Or run a single service without Docker. The frontend needs the backend running
@@ -261,10 +261,10 @@ This app is deploy-ready for the ml-capstone cluster. Steps:
 
 1. Fork or copy this directory into your team's GitHub repo.
 2. Follow **`student-guide.md` → Part B → Setup: Create your repo, then sign in and create your Coolify Applications** (in the top-level of `ml-capstone-platform`) to wire up the Coolify Applications + GitHub secrets.
-3. Push to `staging` branch → GitHub Actions runs unit tests → fires the Coolify staging webhook → your app is live at `http://<your-repo>-staging.ml-capstone.cs.byu.edu`.
-4. Merge `staging` → `main` → same flow to prod at `http://<your-repo>.ml-capstone.cs.byu.edu`.
+3. Push to `staging` branch → GitHub Actions runs unit tests → fires the Coolify staging webhook → your app is live at `https://<your-repo>-staging.ml-capstone.cs.byu.edu`.
+4. Merge `staging` → `main` → same flow to prod at `https://<your-repo>.ml-capstone.cs.byu.edu`.
 
-> **`http://`, not `https://`.** The CS wildcard certificate covers one level under `cs.byu.edu`, and these hostnames are two levels deep, so student apps are routed on the HTTP entrypoint only. An `https://` request gets `503 no available server` rather than a certificate warning. Traffic is encrypted at the VPN layer.
+> **`https://`.** CS IT issued a wildcard certificate for `*.ml-capstone.cs.byu.edu`, so your app serves real HTTPS with no browser warning. Set the Protocol dropdown in Coolify to `https`. An `http://` link still works — Traefik redirects it — but `curl` does not follow redirects without `-L`, so an http URL prints the literal word `Found` instead of your JSON and silently drops `POST` bodies. A `www.` hostname is two labels deep and is *not* covered by the wildcard; delete those rows.
 >
 > The hostname comes from your **repository name**, not your team name.
 
@@ -315,7 +315,7 @@ The outputs give you both URLs and the Application UUIDs.
 
 ### The one manual step
 
-**Terraform cannot set your domains.** Coolify's API won't accept per-service domains on a Docker Compose application, so for each of the two Applications: **Access → gear icon on "1 configured domain"** (or the **Domains** tab) → under service `frontend`, set `http://<your-repo>-staging.ml-capstone.cs.byu.edu` (or the prod equivalent) → **Save**. Delete the auto-generated `sslip.io` placeholder and the `www.` variant.
+**Terraform cannot set your domains.** Coolify's API won't accept per-service domains on a Docker Compose application, so for each of the two Applications: **Access → gear icon on "1 configured domain"** (or the **Domains** tab) → under service `frontend`, set `https://<your-repo>-staging.ml-capstone.cs.byu.edu` (or the prod equivalent) → **Save**. Delete the auto-generated `sslip.io` placeholder and the `www.` variant.
 
 Do this **before** your first deploy. Traefik bakes its routing labels into a container when it starts, so a domain added afterwards leaves your URL returning `404 page not found` until you hit **Redeploy**.
 
